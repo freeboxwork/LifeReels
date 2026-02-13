@@ -1,0 +1,85 @@
+:root {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #1d1f21;
+  background: #f4f6f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border: 1px solid #d9e0e8;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+h1 {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.mode-toggle button,
+form button,
+.session-box button {
+  border: 1px solid #bdc8d6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.mode-toggle .active {
+  border-color: #0d6efd;
+  background: #e8f1ff;
+}
+
+form {
+  display: grid;
+  gap: 10px;
+}
+
+label {
+  font-size: 14px;
+  color: #4c5561;
+}
+
+input {
+  border: 1px solid #bdc8d6;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.message {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+.ok {
+  color: #1c7c3a;
+}
+
+.err {
+  color: #b32424;
+}

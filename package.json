@@ -1,0 +1,34 @@
+{
+  "name": "web_service",
+  "version": "1.0.0",
+  "description": "LifeReels repository.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freeboxwork/LifeReels.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/freeboxwork/LifeReels/issues"
+  },
+  "homepage": "https://github.com/freeboxwork/LifeReels#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
