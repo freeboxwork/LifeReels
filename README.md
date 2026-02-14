@@ -67,8 +67,23 @@ npm run dev
 
 - `signUp` (email/password)
 - `signInWithPassword` (email/password)
+- `signInWithOAuth` (Google)
 - session persistence and auth state listener
 - `signOut`
+
+## Google login setup
+
+Official guide: https://supabase.com/docs/guides/auth/social-login/auth-google
+
+1. In Google Cloud Console, create OAuth client credentials (Web application).
+2. In Supabase Dashboard -> `Authentication` -> `Providers` -> `Google`, enable provider and set:
+   - Google client ID
+   - Google client secret
+3. Add your app URL to Supabase `Authentication` -> `URL Configuration`:
+   - local: `http://localhost:5173`
+   - production: your Cloudflare Pages URL
+4. In Google OAuth allowed redirect URIs, add Supabase callback URL:
+   - `https://<YOUR_PROJECT_REF>.supabase.co/auth/v1/callback`
 
 ## Notes
 

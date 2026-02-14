@@ -50,6 +50,11 @@ form button,
   cursor: pointer;
 }
 
+.oauth-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .mode-toggle .active {
   border-color: #0d6efd;
   background: #e8f1ff;

@@ -77,6 +77,24 @@ export default function App() {
     setLoading(false);
   }
 
+  async function handleGoogleSignIn() {
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+
+    if (oauthError) {
+      setError(oauthError.message);
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="auth-page">
       <section className="auth-card">
@@ -138,6 +156,14 @@ export default function App() {
                     : "Log in"}
               </button>
             </form>
+            <button
+              type="button"
+              className="oauth-button"
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+            >
+              Continue with Google
+            </button>
           </>
         )}
 
