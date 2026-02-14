@@ -1,7 +1,7 @@
 {
   "name": "web_service",
   "version": "1.0.0",
-  "description": "LifeReels repository.",
+  "description": "Life Reels repository.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

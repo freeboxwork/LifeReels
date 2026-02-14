@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
+import DiaryScenarioPrototype from "./DiaryScenarioPrototype";
 import { supabase } from "./supabaseClient";
 
 type AuthMode = "login" | "signup";
@@ -222,8 +223,9 @@ export default function App() {
 
   return (
     <main className="auth-page">
+      <DiaryScenarioPrototype />
       <section className="auth-card">
-        <h1>LifeReels Auth</h1>
+        <h1>Life Reels Auth</h1>
 
         {session ? (
           <>

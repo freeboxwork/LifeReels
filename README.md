@@ -1,4 +1,4 @@
-# LifeReels
+# Life Reels
 
 React(TypeScript) + Supabase(Auth) sample for sign-up/login.
 
@@ -51,6 +51,8 @@ Set:
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+VITE_OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+VITE_OPENAI_MODEL=gpt-4.1-mini
 ```
 
 For local Supabase started by CLI:
@@ -75,6 +77,16 @@ npm run dev
 - password change (`auth.updateUser`)
 - password reset email (`resetPasswordForEmail`)
 - account deletion via Supabase Edge Function (`delete-user`)
+
+## Diary Scenario Prototype (No login required)
+
+- Enter diary text in `Diary to Scenario (Prototype)` section.
+- Click `완성` to call OpenAI API and generate a `reels_script_v1` style scenario JSON.
+- Generated shots are rendered in the UI immediately.
+
+Note:
+- This fast prototype calls OpenAI directly from frontend using `VITE_OPENAI_API_KEY`.
+- Do not use this pattern for production without a secure backend proxy.
 
 ## Google login setup
 
