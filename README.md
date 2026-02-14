@@ -67,6 +67,7 @@ npm run dev
 
 - `signUp` (email/password)
 - `signInWithPassword` (email/password)
+- forgot password (email reset link)
 - `signInWithOAuth` (Google)
 - session persistence and auth state listener
 - `signOut`

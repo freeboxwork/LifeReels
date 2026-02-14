@@ -196,6 +196,30 @@ export default function App() {
     }
   }
 
+  async function handleForgotPassword() {
+    if (!email) {
+      setError("Enter your email first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+      email,
+      { redirectTo: window.location.origin },
+    );
+
+    if (resetError) {
+      setError(resetError.message);
+    } else {
+      setMessage("Password reset email sent. Check your inbox.");
+    }
+
+    setLoading(false);
+  }
+
   return (
     <main className="auth-page">
       <section className="auth-card">
@@ -309,6 +333,11 @@ export default function App() {
                     ? "Create account"
                     : "Log in"}
               </button>
+              {mode === "login" && (
+                <button type="button" onClick={handleForgotPassword} disabled={loading}>
+                  Forgot password
+                </button>
+              )}
             </form>
             <button
               type="button"
