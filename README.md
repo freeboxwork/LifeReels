@@ -70,6 +70,10 @@ npm run dev
 - `signInWithOAuth` (Google)
 - session persistence and auth state listener
 - `signOut`
+- `My Page`: user info, profile update (`display_name`)
+- password change (`auth.updateUser`)
+- password reset email (`resetPasswordForEmail`)
+- account deletion via Supabase Edge Function (`delete-user`)
 
 ## Google login setup
 
@@ -88,6 +92,17 @@ Official guide: https://supabase.com/docs/guides/auth/social-login/auth-google
 ## Notes
 
 - If email confirmation is enabled in Supabase Auth, new users must confirm email before login.
+- Account deletion requires deploying the included Supabase Edge Function.
+- For hosted Supabase project, run:
+
+```bash
+npx supabase login
+npx supabase link --project-ref <YOUR_PROJECT_REF>
+npx supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<YOUR_SERVICE_ROLE_KEY>
+npx supabase functions deploy delete-user
+```
+
+- `SUPABASE_SERVICE_ROLE_KEY` is sensitive. Never expose it in frontend or commit it.
 - For local Supabase, stop services with:
 
 ```bash

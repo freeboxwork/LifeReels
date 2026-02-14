@@ -33,6 +33,11 @@ h1 {
   margin-bottom: 18px;
 }
 
+h2,
+h3 {
+  margin: 0 0 10px;
+}
+
 .mode-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -42,7 +47,8 @@ h1 {
 
 .mode-toggle button,
 form button,
-.session-box button {
+.session-box button,
+.danger-zone button {
   border: 1px solid #bdc8d6;
   border-radius: 8px;
   padding: 10px 12px;
@@ -63,6 +69,7 @@ form button,
 form {
   display: grid;
   gap: 10px;
+  margin-top: 16px;
 }
 
 label {
@@ -87,4 +94,31 @@ input {
 
 .err {
   color: #b32424;
+}
+
+.session-box p {
+  margin: 6px 0;
+}
+
+.session-box code {
+  font-size: 12px;
+}
+
+.danger-zone {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #f0c2c2;
+  display: grid;
+  gap: 10px;
+}
+
+.danger-zone p {
+  margin: 0;
+  font-size: 13px;
+  color: #a13b3b;
+}
+
+.danger-zone button {
+  border-color: #c95757;
+  color: #9f2b2b;
 }
