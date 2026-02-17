@@ -55,7 +55,18 @@ VITE_OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 VITE_OPENAI_MODEL=gpt-4.1-mini
 ```
 
-Cloudflare Pages Functions pipeline (`/api/pipeline/start`, `/api/pipeline/status`) needs server-side vars:
+Bridge Lambda mode (recommended):
+- Cloudflare Pages `functions/api/pipeline/*` now proxy to AWS Bridge Lambda.
+- The heavy Remotion/AWS SDK logic runs in Node.js Lambda (`bridge-lambda/src/handler.ts`).
+
+Cloudflare Pages vars for proxy:
+
+```env
+PIPELINE_BRIDGE_URL=https://<bridge-lambda-function-url>
+PIPELINE_BRIDGE_TOKEN=<optional-shared-secret>
+```
+
+Bridge Lambda env vars:
 
 ```env
 OPENAI_API_KEY=...
@@ -74,12 +85,11 @@ REMOTION_PROGRESS_POLL_MS=1500
 REMOTION_BGM_SRC=https://.../sites/<site>/assets/bgm/<file>.mp3
 ```
 
-Note:
-- Pipeline status storage supports Cloudflare KV via binding `PIPELINE_JOBS_KV`.
-- If `PIPELINE_JOBS_KV` is not bound, in-memory fallback is used (not reliable across worker restarts).
-- In Cloudflare Pages: `Project -> Settings -> Functions -> KV namespace bindings`
-  - Variable name: `PIPELINE_JOBS_KV`
-  - Value: your KV namespace
+Deploy bridge helper:
+
+```powershell
+.\bridge-lambda\scripts\deploy.ps1
+```
 
 For local Supabase started by CLI:
 - `VITE_SUPABASE_URL=http://127.0.0.1:54321`

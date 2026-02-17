@@ -1,36 +1,7 @@
 import { getRenderProgress, renderMediaOnLambda } from "@remotion/lambda/client";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
-export type Env = {
-  PIPELINE_JOBS_KV?: {
-    get: (key: string, type: "json") => Promise<unknown | null>;
-    put: (key: string, value: string, options?: { expirationTtl?: number }) => Promise<void>;
-  };
-  OPENAI_API_KEY?: string;
-  VITE_OPENAI_API_KEY?: string;
-  VITE_OPENAI_MODEL?: string;
-  OPENAI_IMAGE_MODEL?: string;
-  ELEVENLABS_API_KEY?: string;
-  ELEVENLABS_VOICE_ID?: string;
-  ELEVENLABS_MODEL_ID?: string;
-  VITE_ELEVENLABS_VOICE_ID?: string;
-  VITE_ELEVENLABS_MODEL_ID?: string;
-  REMOTION_AWS_REGION?: string;
-  REMOTION_FUNCTION_NAME?: string;
-  REMOTION_SERVE_URL?: string;
-  REMOTION_AWS_ACCESS_KEY_ID?: string;
-  REMOTION_AWS_SECRET_ACCESS_KEY?: string;
-  REMOTION_AWS_SESSION_TOKEN?: string;
-  REMOTION_AWS_BUCKET_NAME?: string;
-  REMOTION_LAMBDA_CONCURRENCY?: string;
-  REMOTION_FRAMES_PER_LAMBDA?: string;
-  REMOTION_MAX_RETRIES?: string;
-  REMOTION_PROGRESS_POLL_MS?: string;
-  REMOTION_PRIVACY?: string;
-  REMOTION_BGM_SRC?: string;
-};
-
-type PipelineJobStatus =
+type JobStatus =
   | "queued"
   | "generating_scenario"
   | "generating_images"
@@ -39,10 +10,10 @@ type PipelineJobStatus =
   | "done"
   | "error";
 
-export type PipelineJob = {
+type Job = {
   id: string;
   createdAt: number;
-  status: PipelineJobStatus;
+  status: JobStatus;
   progress: number;
   message: string;
   error?: string;
@@ -80,60 +51,34 @@ type ScriptV2 = {
   shots: Shot[];
 };
 
-const jobs = new Map<string, PipelineJob>();
-const JOB_TTL_SECONDS = 60 * 60 * 24;
-
-function jobKey(id: string) {
-  return `pipeline:job:${id}`;
-}
-
-async function writeJob(env: Env, job: PipelineJob) {
-  const kv = env.PIPELINE_JOBS_KV;
-  if (kv) {
-    await kv.put(jobKey(job.id), JSON.stringify(job), { expirationTtl: JOB_TTL_SECONDS });
-  } else {
-    jobs.set(job.id, job);
-  }
-}
-
-export async function getJob(env: Env, id: string) {
-  const kv = env.PIPELINE_JOBS_KV;
-  if (kv) {
-    const data = await kv.get(jobKey(id), "json");
-    return (data as PipelineJob | null) ?? undefined;
-  }
-  return jobs.get(id);
-}
-
-export async function createJob(env: Env): Promise<PipelineJob> {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  const id = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  const job: PipelineJob = {
-    id,
-    createdAt: Date.now(),
-    status: "queued",
-    progress: 0,
-    message: "Queued",
+type EventV2 = {
+  requestContext?: {
+    http?: {
+      method?: string;
+      path?: string;
+    };
   };
-  await writeJob(env, job);
-  return job;
+  rawPath?: string;
+  rawQueryString?: string;
+  headers?: Record<string, string | undefined>;
+  body?: string | null;
+  isBase64Encoded?: boolean;
+};
+
+const jobs = new Map<string, Job>();
+
+function json(statusCode: number, obj: unknown) {
+  return {
+    statusCode,
+    headers: { "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify(obj),
+  };
 }
 
-export async function setJob(env: Env, job: PipelineJob, patch: Partial<PipelineJob>) {
-  const next = { ...job, ...patch };
-  await writeJob(env, next);
-  return next;
-}
-
-function requireEnv(env: Env, key: keyof Env) {
-  const v = String(env[key] ?? "").trim();
-  if (!v) throw new Error(`Missing env: ${String(key)}`);
+function getEnv(name: string, required = true) {
+  const v = String(process.env[name] ?? "").trim();
+  if (!v && required) throw new Error(`Missing env: ${name}`);
   return v;
-}
-
-function clamp(v: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, v));
 }
 
 function parsePositiveInt(v: string | undefined, fallback: number) {
@@ -141,9 +86,16 @@ function parsePositiveInt(v: string | undefined, fallback: number) {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
-function inferBucketName(env: Env, serveUrl: string) {
-  const explicit = String(env.REMOTION_AWS_BUCKET_NAME ?? "").trim();
-  if (explicit) return explicit;
+function clamp(v: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, v));
+}
+
+function nowJobId() {
+  const n = crypto.randomBytes(8);
+  return n.toString("hex");
+}
+
+function inferBucketName(serveUrl: string) {
   return new URL(serveUrl).hostname.split(".")[0];
 }
 
@@ -151,14 +103,6 @@ function inferSiteName(serveUrl: string) {
   const m = new URL(serveUrl).pathname.match(/\/sites\/([^/]+)\//);
   if (!m?.[1]) throw new Error("Could not infer site name from REMOTION_SERVE_URL.");
   return m[1];
-}
-
-function parseScenarioText(text: string): ScriptV2 {
-  const parsed = JSON.parse(text) as ScriptV2;
-  if (!parsed || !Array.isArray(parsed.shots) || parsed.shots.length === 0) {
-    throw new Error("Invalid scenario payload.");
-  }
-  return parsed;
 }
 
 function buildScenarioPrompt(diaryText: string) {
@@ -202,6 +146,23 @@ async function callOpenAiResponses(apiKey: string, model: string, prompt: string
   return out;
 }
 
+function parseScenarioText(text: string): ScriptV2 {
+  const parsed = JSON.parse(text) as ScriptV2;
+  if (!parsed || !Array.isArray(parsed.shots) || parsed.shots.length === 0) {
+    throw new Error("Invalid scenario payload.");
+  }
+  return parsed;
+}
+
+function buildImagePrompt(shot: Shot) {
+  const scene = String(shot.image_prompt || shot.visual_description || "").trim();
+  return [
+    "Warm cinematic still image, Korean daily life mood, no people.",
+    "No text, no signage, no labels, no logo.",
+    `Scene: ${scene}`,
+  ].join("\n");
+}
+
 async function callOpenAiImage(apiKey: string, model: string, prompt: string) {
   const r = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
@@ -221,27 +182,16 @@ async function callOpenAiImage(apiKey: string, model: string, prompt: string) {
   const data = JSON.parse(raw) as { data?: Array<{ b64_json?: string; url?: string }> };
   const item = data.data?.[0];
   if (!item) throw new Error("Image payload empty.");
-  if (item.b64_json) {
-    const bin = atob(item.b64_json);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return { body: bytes, contentType: "image/png" };
-  }
+  if (item.b64_json) return { body: Buffer.from(item.b64_json, "base64"), contentType: "image/png" };
   if (item.url) {
     const imgResp = await fetch(item.url);
     if (!imgResp.ok) throw new Error(`Image download failed: ${imgResp.status}`);
-    const ab = await imgResp.arrayBuffer();
-    return { body: new Uint8Array(ab), contentType: imgResp.headers.get("content-type") ?? "image/png" };
+    return { body: Buffer.from(await imgResp.arrayBuffer()), contentType: imgResp.headers.get("content-type") ?? "image/png" };
   }
   throw new Error("Image payload missing b64_json/url.");
 }
 
-async function callElevenLabs(
-  apiKey: string,
-  voiceId: string,
-  modelId: string,
-  shot: Shot,
-) {
+async function callElevenLabs(apiKey: string, voiceId: string, modelId: string, shot: Shot) {
   const nd = shot.narration_direction;
   const d = nd?.delivery ?? {};
   const intensity = clamp(Number(nd?.intensity ?? 0.5), 0, 1);
@@ -274,25 +224,12 @@ async function callElevenLabs(
     const raw = await r.text();
     throw new Error(`ElevenLabs failed: ${r.status} ${raw}`);
   }
-  const ab = await r.arrayBuffer();
-  return { body: new Uint8Array(ab), contentType: "audio/mpeg" };
-}
-
-function buildImagePrompt(shot: Shot) {
-  const scene = String(shot.image_prompt || shot.visual_description || "").trim();
-  return [
-    "Warm cinematic still image, Korean daily life mood, no people.",
-    "No text, no signage, no labels, no logo.",
-    `Scene: ${scene}`,
-  ].join("\n");
+  return { body: Buffer.from(await r.arrayBuffer()), contentType: "audio/mpeg" };
 }
 
 function makeRenderPlan(script: ScriptV2) {
   const fps = 30;
-  const shots = script.shots.map((s) => ({
-    ...s,
-    duration_seconds: Number(s.duration_seconds ?? 3),
-  }));
+  const shots = script.shots.map((s) => ({ ...s, duration_seconds: Number(s.duration_seconds ?? 3) }));
   let cursor = 0;
   const planShots = shots.map((s) => {
     const durationInFrames = Math.max(1, Math.round((Number(s.duration_seconds) || 3) * fps));
@@ -314,102 +251,79 @@ function makeRenderPlan(script: ScriptV2) {
   return { fps, durationInFrames: Math.max(1, cursor), shots: planShots };
 }
 
-export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: string) {
-  try {
-    job = await setJob(env, job, {
-      status: "generating_scenario",
-      progress: 0.06,
-      message: "Generating scenario...",
-    });
+async function runPipeline(job: Job, diaryText: string) {
+  const set = (patch: Partial<Job>) => {
+    Object.assign(job, patch);
+    jobs.set(job.id, job);
+  };
 
-    const openaiKey = String(env.OPENAI_API_KEY ?? env.VITE_OPENAI_API_KEY ?? "").trim();
-    if (!openaiKey) throw new Error("Missing env: OPENAI_API_KEY (or VITE_OPENAI_API_KEY)");
-    const openaiModel = String(env.VITE_OPENAI_MODEL ?? "gpt-4.1-mini");
-    const imageModel = String(env.OPENAI_IMAGE_MODEL ?? "gpt-image-1.5");
-    const elevenKey = requireEnv(env, "ELEVENLABS_API_KEY");
-    const voiceId = String(env.ELEVENLABS_VOICE_ID ?? env.VITE_ELEVENLABS_VOICE_ID ?? "").trim();
-    if (!voiceId) throw new Error("Missing env: ELEVENLABS_VOICE_ID (or VITE_ELEVENLABS_VOICE_ID)");
-    const elevenModel = String(env.ELEVENLABS_MODEL_ID ?? env.VITE_ELEVENLABS_MODEL_ID ?? "eleven_flash_v2_5");
-    const region = String(env.REMOTION_AWS_REGION ?? "us-east-1");
-    const functionName = requireEnv(env, "REMOTION_FUNCTION_NAME");
-    const serveUrl = requireEnv(env, "REMOTION_SERVE_URL");
-    const bucketName = inferBucketName(env, serveUrl);
+  try {
+    set({ status: "generating_scenario", progress: 0.06, message: "Generating scenario..." });
+
+    const openaiKey = getEnv("OPENAI_API_KEY");
+    const openaiModel = getEnv("OPENAI_MODEL", false) || "gpt-4.1-mini";
+    const imageModel = getEnv("OPENAI_IMAGE_MODEL", false) || "gpt-image-1.5";
+    const elevenKey = getEnv("ELEVENLABS_API_KEY");
+    const voiceId = getEnv("ELEVENLABS_VOICE_ID");
+    const elevenModel = getEnv("ELEVENLABS_MODEL_ID", false) || "eleven_flash_v2_5";
+    const region = getEnv("REMOTION_AWS_REGION", false) || "us-east-1";
+    const functionName = getEnv("REMOTION_FUNCTION_NAME");
+    const serveUrl = getEnv("REMOTION_SERVE_URL");
+    const bucketName = getEnv("REMOTION_AWS_BUCKET_NAME", false) || inferBucketName(serveUrl);
     const siteName = inferSiteName(serveUrl);
     const origin = new URL(serveUrl).origin;
 
-    const scenarioText = await callOpenAiResponses(openaiKey, openaiModel, buildScenarioPrompt(diaryText));
-    const script = parseScenarioText(scenarioText);
-    job = await setJob(env, job, { totalShots: script.shots.length, completedShots: 0 });
-
-    const s3 = new S3Client({
-      region,
-      credentials:
-        env.REMOTION_AWS_ACCESS_KEY_ID && env.REMOTION_AWS_SECRET_ACCESS_KEY
-          ? {
-              accessKeyId: String(env.REMOTION_AWS_ACCESS_KEY_ID),
-              secretAccessKey: String(env.REMOTION_AWS_SECRET_ACCESS_KEY),
-              sessionToken: env.REMOTION_AWS_SESSION_TOKEN,
-            }
-          : undefined,
-    });
+    const s3 = new S3Client({ region });
+    const script = parseScenarioText(await callOpenAiResponses(openaiKey, openaiModel, buildScenarioPrompt(diaryText)));
+    set({ totalShots: script.shots.length, completedShots: 0 });
 
     const assetsByShotId: Record<string, { image_src: string; audio_src: string }> = {};
     const plan = makeRenderPlan(script);
 
-    job = await setJob(env, job, {
-      status: "generating_images",
-      progress: 0.12,
-      message: "Generating images...",
-    });
+    set({ status: "generating_images", progress: 0.12, message: "Generating images..." });
     for (let i = 0; i < script.shots.length; i++) {
       const shot = script.shots[i];
       const image = await callOpenAiImage(openaiKey, imageModel, buildImagePrompt(shot));
-      const imageKey = `sites/${siteName}/assets/jobs/${job.id}/s_${i + 1}.png`;
+      const key = `sites/${siteName}/assets/jobs/${job.id}/s_${i + 1}.png`;
       await s3.send(
         new PutObjectCommand({
           Bucket: bucketName,
-          Key: imageKey,
+          Key: key,
           Body: image.body,
           ContentType: image.contentType,
           CacheControl: "public, max-age=31536000, immutable",
         }),
       );
-      const imgUrl = `${origin}/${imageKey}`;
-      assetsByShotId[shot.shot_id] = { image_src: imgUrl, audio_src: "" };
-      job = await setJob(env, job, {
+      assetsByShotId[shot.shot_id] = { image_src: `${origin}/${key}`, audio_src: "" };
+      set({
         progress: 0.12 + ((i + 1) / script.shots.length) * 0.28,
         message: `Generating images... (${i + 1}/${script.shots.length})`,
         completedShots: i + 1,
       });
     }
 
-    job = await setJob(env, job, {
-      status: "generating_narration",
-      progress: 0.42,
-      message: "Generating narration...",
-    });
+    set({ status: "generating_narration", progress: 0.42, message: "Generating narration..." });
     for (let i = 0; i < script.shots.length; i++) {
       const shot = script.shots[i];
       const audio = await callElevenLabs(elevenKey, voiceId, elevenModel, shot);
-      const audioKey = `sites/${siteName}/assets/jobs/${job.id}/Narr_S_${i + 1}.mp3`;
+      const key = `sites/${siteName}/assets/jobs/${job.id}/Narr_S_${i + 1}.mp3`;
       await s3.send(
         new PutObjectCommand({
           Bucket: bucketName,
-          Key: audioKey,
+          Key: key,
           Body: audio.body,
           ContentType: audio.contentType,
           CacheControl: "public, max-age=31536000, immutable",
         }),
       );
-      assetsByShotId[shot.shot_id].audio_src = `${origin}/${audioKey}`;
-      job = await setJob(env, job, {
+      assetsByShotId[shot.shot_id].audio_src = `${origin}/${key}`;
+      set({
         progress: 0.42 + ((i + 1) / script.shots.length) * 0.28,
         message: `Generating narration... (${i + 1}/${script.shots.length})`,
         completedShots: i + 1,
       });
     }
 
-    // BGM is expected to be pre-uploaded once.
     const renderParams = {
       layout_preset: "frame_matte",
       subtitle_preset: "soft_box",
@@ -425,14 +339,12 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       bgm_duck_release_frames: 10,
       narration_gap_ms: 220,
       bgm_src:
-        env.REMOTION_BGM_SRC ??
+        getEnv("REMOTION_BGM_SRC", false) ??
         `${origin}/sites/${siteName}/assets/bgm/BGM-01_warm-lofi-diary_78bpm_30s_loop_v01_type_A.mp3`,
     };
 
     for (let i = 0; i < plan.shots.length; i++) {
-      const shot = plan.shots[i];
-      const key = script.shots[i].shot_id;
-      shot.assets = assetsByShotId[key];
+      plan.shots[i].assets = assetsByShotId[script.shots[i].shot_id];
     }
 
     const inputProps = {
@@ -443,16 +355,13 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       render_plan: plan,
     };
 
-    job = await setJob(env, job, {
-      status: "rendering_video",
-      progress: 0.8,
-      message: "Rendering video (AWS)...",
-    });
-    const requestedConcurrency = parsePositiveInt(env.REMOTION_LAMBDA_CONCURRENCY, 0);
-    const framesPerLambda = parsePositiveInt(env.REMOTION_FRAMES_PER_LAMBDA, 40);
-    const maxRetries = parsePositiveInt(env.REMOTION_MAX_RETRIES, 1);
-    const privacy = String(env.REMOTION_PRIVACY ?? "public").toLowerCase() === "private" ? "private" : "public";
-
+    set({ status: "rendering_video", progress: 0.8, message: "Rendering video (AWS)..." });
+    const requestedConcurrency = parsePositiveInt(process.env.REMOTION_LAMBDA_CONCURRENCY, 0);
+    const framesPerLambda = parsePositiveInt(process.env.REMOTION_FRAMES_PER_LAMBDA, 40);
+    const maxRetries = parsePositiveInt(process.env.REMOTION_MAX_RETRIES, 1);
+    const privacy = (String(process.env.REMOTION_PRIVACY ?? "public").toLowerCase() === "private" ? "private" : "public") as
+      | "public"
+      | "private";
     const buildArgs = (forceConcurrency?: number) => {
       const base = {
         region,
@@ -470,7 +379,7 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       return { ...base, framesPerLambda };
     };
 
-    let started;
+    let started: Awaited<ReturnType<typeof renderMediaOnLambda>>;
     try {
       started = await renderMediaOnLambda(buildArgs());
     } catch (e) {
@@ -482,7 +391,7 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       }
     }
 
-    const pollMs = parsePositiveInt(env.REMOTION_PROGRESS_POLL_MS, 1500);
+    const pollMs = parsePositiveInt(process.env.REMOTION_PROGRESS_POLL_MS, 1500);
     while (true) {
       const p = await getRenderProgress({
         region,
@@ -493,22 +402,72 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       if (p.fatalErrorEncountered) {
         throw new Error(p.errors?.[0]?.message ?? "AWS render failed.");
       }
-      job = await setJob(env, job, {
+      set({
         progress: 0.8 + clamp(Number(p.overallProgress ?? 0), 0, 1) * 0.18,
         message: `Rendering video (AWS)... ${Math.round(clamp(Number(p.overallProgress ?? 0), 0, 1) * 100)}%`,
       });
       if (p.done) {
         if (!p.outputFile) throw new Error("Render done but output URL missing.");
-        await setJob(env, job, { status: "done", progress: 1, message: "Done", outputUrl: p.outputFile });
+        set({ status: "done", progress: 1, message: "Done", outputUrl: p.outputFile });
         break;
       }
       await new Promise((r) => setTimeout(r, pollMs));
     }
-  } catch (err) {
-    await setJob(env, job, {
-      status: "error",
-      message: "Error",
-      error: err instanceof Error ? err.message : String(err),
-    });
+  } catch (e) {
+    set({ status: "error", message: "Error", error: e instanceof Error ? e.message : String(e) });
   }
 }
+
+function parseBody(event: EventV2): unknown {
+  if (!event.body) return {};
+  const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
+  return raw ? JSON.parse(raw) : {};
+}
+
+function checkAuth(event: EventV2) {
+  const token = String(process.env.BRIDGE_AUTH_TOKEN ?? "").trim();
+  if (!token) return true;
+  const auth = String(event.headers?.authorization ?? event.headers?.Authorization ?? "");
+  return auth === `Bearer ${token}`;
+}
+
+export const handler = async (event: EventV2) => {
+  try {
+    if (!checkAuth(event)) {
+      return json(401, { error: "Unauthorized" });
+    }
+    const method = String(event.requestContext?.http?.method ?? "").toUpperCase();
+    const path = String(event.rawPath ?? event.requestContext?.http?.path ?? "");
+    const qs = new URLSearchParams(event.rawQueryString ?? "");
+
+    if (method === "POST" && path.endsWith("/pipeline/start")) {
+      const body = parseBody(event) as { diaryText?: string };
+      const diaryText = String(body?.diaryText ?? "").trim();
+      if (!diaryText) return json(400, { error: "Missing diaryText." });
+
+      const job: Job = {
+        id: nowJobId(),
+        createdAt: Date.now(),
+        status: "queued",
+        progress: 0,
+        message: "Queued",
+      };
+      jobs.set(job.id, job);
+      void runPipeline(job, diaryText);
+      return json(200, { id: job.id });
+    }
+
+    if (method === "GET" && path.endsWith("/pipeline/status")) {
+      const id = String(qs.get("id") ?? "").trim();
+      if (!id) return json(400, { error: "Missing id." });
+      const job = jobs.get(id);
+      if (!job) return json(404, { error: "Job not found." });
+      return json(200, job);
+    }
+
+    return json(404, { error: "Not found." });
+  } catch (e) {
+    return json(500, { error: e instanceof Error ? e.message : String(e) });
+  }
+};
+
