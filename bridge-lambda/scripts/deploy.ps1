@@ -126,6 +126,7 @@ $vars = @{
   REMOTION_FRAMES_PER_LAMBDA = [string]($envMap["REMOTION_FRAMES_PER_LAMBDA"])
   REMOTION_MAX_RETRIES = [string]($envMap["REMOTION_MAX_RETRIES"])
   REMOTION_PROGRESS_POLL_MS = [string]($envMap["REMOTION_PROGRESS_POLL_MS"])
+  REMOTION_ASSET_CONCURRENCY = [string]($envMap["REMOTION_ASSET_CONCURRENCY"])
   REMOTION_PRIVACY = [string]($envMap["REMOTION_PRIVACY"])
   REMOTION_BGM_SRC = "https://remotionlambda-useast1-yuc9eon4qr.s3.us-east-1.amazonaws.com/sites/lifereels-site/assets/bgm/BGM-01_warm-lofi-diary_78bpm_30s_loop_v01_type_A.mp3"
 }

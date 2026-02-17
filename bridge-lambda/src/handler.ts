@@ -117,6 +117,49 @@ function buildScenarioPrompt(diaryText: string) {
   ].join("\n");
 }
 
+function stripCodeFence(text: string) {
+  const t = text.trim();
+  if (t.startsWith("```")) {
+    const lines = t.split("\n");
+    if (lines.length >= 3 && lines[lines.length - 1].trim() === "```") {
+      return lines.slice(1, -1).join("\n").trim();
+    }
+  }
+  return t;
+}
+
+function extractFirstJsonObject(text: string) {
+  const s = stripCodeFence(text);
+  const start = s.indexOf("{");
+  if (start < 0) return s;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) {
+        esc = false;
+      } else if (ch === "\\") {
+        esc = true;
+      } else if (ch === "\"") {
+        inStr = false;
+      }
+      continue;
+    }
+    if (ch === "\"") {
+      inStr = true;
+      continue;
+    }
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return s;
+}
+
 async function callOpenAiResponses(apiKey: string, model: string, prompt: string) {
   const r = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -124,6 +167,7 @@ async function callOpenAiResponses(apiKey: string, model: string, prompt: string
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
+    signal: AbortSignal.timeout(120000),
     body: JSON.stringify({
       model,
       input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
@@ -148,11 +192,32 @@ async function callOpenAiResponses(apiKey: string, model: string, prompt: string
 }
 
 function parseScenarioText(text: string): ScriptV2 {
-  const parsed = JSON.parse(text) as ScriptV2;
+  const raw = extractFirstJsonObject(text);
+  const parsed = JSON.parse(raw) as Partial<ScriptV2>;
   if (!parsed || !Array.isArray(parsed.shots) || parsed.shots.length === 0) {
     throw new Error("Invalid scenario payload.");
   }
-  return parsed;
+  const normalizedShots = parsed.shots.slice(0, 5).map((s, i) => {
+    const shot = (s ?? {}) as Partial<Shot>;
+    return {
+      shot_id: String(shot.shot_id ?? `S${i + 1}`),
+      duration_seconds: Number(shot.duration_seconds ?? 3),
+      subtitle: String(shot.subtitle ?? "").trim() || `장면 ${i + 1}`,
+      narration: String(shot.narration ?? "").trim() || `장면 ${i + 1} 내레이션`,
+      image_prompt: String(shot.image_prompt ?? shot.visual_description ?? "").trim() || "Korean daily life cinematic still",
+      transition: String(shot.transition ?? "cut"),
+      narration_direction: shot.narration_direction ?? { intensity: 0.5, delivery: { speaking_rate: 1, energy: 0.5 } },
+      visual_description: shot.visual_description,
+    } satisfies Shot;
+  });
+  return {
+    schema_version: String(parsed.schema_version ?? "reels_script_v2"),
+    language: String(parsed.language ?? "ko"),
+    title: String(parsed.title ?? "오늘의 기록"),
+    tone: String(parsed.tone ?? "warm"),
+    total_duration_seconds: Number(parsed.total_duration_seconds ?? 15),
+    shots: normalizedShots,
+  };
 }
 
 function buildImagePrompt(shot: Shot) {
@@ -165,31 +230,41 @@ function buildImagePrompt(shot: Shot) {
 }
 
 async function callOpenAiImage(apiKey: string, model: string, prompt: string) {
-  const r = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      prompt,
-      size: "1024x1536",
-      quality: "low",
-    }),
-  });
-  const raw = await r.text();
-  if (!r.ok) throw new Error(`OpenAI image failed: ${r.status} ${raw}`);
-  const data = JSON.parse(raw) as { data?: Array<{ b64_json?: string; url?: string }> };
-  const item = data.data?.[0];
-  if (!item) throw new Error("Image payload empty.");
-  if (item.b64_json) return { body: Buffer.from(item.b64_json, "base64"), contentType: "image/png" };
-  if (item.url) {
-    const imgResp = await fetch(item.url);
-    if (!imgResp.ok) throw new Error(`Image download failed: ${imgResp.status}`);
-    return { body: Buffer.from(await imgResp.arrayBuffer()), contentType: imgResp.headers.get("content-type") ?? "image/png" };
+  let lastErr = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: AbortSignal.timeout(180000),
+        body: JSON.stringify({
+          model,
+          prompt,
+          size: "1024x1536",
+          quality: "low",
+        }),
+      });
+      const raw = await r.text();
+      if (!r.ok) throw new Error(`OpenAI image failed: ${r.status} ${raw}`);
+      const data = JSON.parse(raw) as { data?: Array<{ b64_json?: string; url?: string }> };
+      const item = data.data?.[0];
+      if (!item) throw new Error("Image payload empty.");
+      if (item.b64_json) return { body: Buffer.from(item.b64_json, "base64"), contentType: "image/png" };
+      if (item.url) {
+        const imgResp = await fetch(item.url, { signal: AbortSignal.timeout(120000) });
+        if (!imgResp.ok) throw new Error(`Image download failed: ${imgResp.status}`);
+        return { body: Buffer.from(await imgResp.arrayBuffer()), contentType: imgResp.headers.get("content-type") ?? "image/png" };
+      }
+      throw new Error("Image payload missing b64_json/url.");
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1200 * attempt));
+    }
   }
-  throw new Error("Image payload missing b64_json/url.");
+  throw new Error(`OpenAI image failed after retries: ${lastErr}`);
 }
 
 async function callElevenLabs(apiKey: string, voiceId: string, modelId: string, shot: Shot) {
@@ -219,6 +294,7 @@ async function callElevenLabs(apiKey: string, voiceId: string, modelId: string, 
       Accept: "audio/mpeg",
       "xi-api-key": apiKey,
     },
+    signal: AbortSignal.timeout(120000),
     body: JSON.stringify(body),
   });
   if (!r.ok) {
@@ -252,6 +328,18 @@ function makeRenderPlan(script: ScriptV2) {
   return { fps, durationInFrames: Math.max(1, cursor), shots: planShots };
 }
 
+async function mapWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<void>) {
+  const queue = items.map((item, index) => ({ item, index }));
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (true) {
+      const next = queue.shift();
+      if (!next) break;
+      await fn(next.item, next.index);
+    }
+  });
+  await Promise.all(workers);
+}
+
 async function runPipeline(job: Job, diaryText: string) {
   const set = (patch: Partial<Job>) => {
     Object.assign(job, patch);
@@ -275,55 +363,82 @@ async function runPipeline(job: Job, diaryText: string) {
     const origin = new URL(serveUrl).origin;
 
     const s3 = new S3Client({ region });
-    const script = parseScenarioText(await callOpenAiResponses(openaiKey, openaiModel, buildScenarioPrompt(diaryText)));
+    let script: ScriptV2 | null = null;
+    let scenarioErr = "";
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const retryHint =
+          attempt === 1
+            ? ""
+            : `\n\nRetry ${attempt}: Your previous output was invalid. Return one JSON object only. No prose, no markdown, no code fences.`;
+        script = parseScenarioText(await callOpenAiResponses(openaiKey, openaiModel, buildScenarioPrompt(diaryText) + retryHint));
+        break;
+      } catch (e) {
+        scenarioErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    if (!script) {
+      throw new Error(`Invalid scenario payload after retries: ${scenarioErr}`);
+    }
     set({ totalShots: script.shots.length, completedShots: 0 });
 
     const assetsByShotId: Record<string, { image_src: string; audio_src: string }> = {};
     const plan = makeRenderPlan(script);
 
-    set({ status: "generating_images", progress: 0.12, message: "Generating images..." });
-    for (let i = 0; i < script.shots.length; i++) {
-      const shot = script.shots[i];
-      const image = await callOpenAiImage(openaiKey, imageModel, buildImagePrompt(shot));
-      const key = `sites/${siteName}/assets/jobs/${job.id}/s_${i + 1}.png`;
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: bucketName,
-          Key: key,
-          Body: image.body,
-          ContentType: image.contentType,
-          CacheControl: "public, max-age=31536000, immutable",
-        }),
-      );
-      assetsByShotId[shot.shot_id] = { image_src: `${origin}/${key}`, audio_src: "" };
+    set({ status: "generating_images", progress: 0.12, message: "Generating assets..." });
+    const assetConcurrency = parsePositiveInt(process.env.REMOTION_ASSET_CONCURRENCY, 3);
+    const totalAssetSteps = script.shots.length * 2;
+    let finishedAssetSteps = 0;
+    let finishedShots = 0;
+    const markProgress = (label: string) => {
+      finishedAssetSteps++;
       set({
-        progress: 0.12 + ((i + 1) / script.shots.length) * 0.28,
-        message: `Generating images... (${i + 1}/${script.shots.length})`,
-        completedShots: i + 1,
+        status: "generating_images",
+        progress: 0.12 + (finishedAssetSteps / totalAssetSteps) * 0.58,
+        message: `Generating assets... (${finishedAssetSteps}/${totalAssetSteps}) ${label}`,
+        completedShots: finishedShots,
       });
-    }
+    };
 
-    set({ status: "generating_narration", progress: 0.42, message: "Generating narration..." });
-    for (let i = 0; i < script.shots.length; i++) {
-      const shot = script.shots[i];
-      const audio = await callElevenLabs(elevenKey, voiceId, elevenModel, shot);
-      const key = `sites/${siteName}/assets/jobs/${job.id}/Narr_S_${i + 1}.mp3`;
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: bucketName,
-          Key: key,
-          Body: audio.body,
-          ContentType: audio.contentType,
-          CacheControl: "public, max-age=31536000, immutable",
-        }),
-      );
-      assetsByShotId[shot.shot_id].audio_src = `${origin}/${key}`;
-      set({
-        progress: 0.42 + ((i + 1) / script.shots.length) * 0.28,
-        message: `Generating narration... (${i + 1}/${script.shots.length})`,
-        completedShots: i + 1,
-      });
-    }
+    await mapWithConcurrency(script.shots, assetConcurrency, async (shot, i) => {
+      assetsByShotId[shot.shot_id] = { image_src: "", audio_src: "" };
+
+      const imageTask = (async () => {
+        const image = await callOpenAiImage(openaiKey, imageModel, buildImagePrompt(shot));
+        const imageKey = `sites/${siteName}/assets/jobs/${job.id}/s_${i + 1}.png`;
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: bucketName,
+            Key: imageKey,
+            Body: image.body,
+            ContentType: image.contentType,
+            CacheControl: "public, max-age=31536000, immutable",
+          }),
+        );
+        assetsByShotId[shot.shot_id].image_src = `${origin}/${imageKey}`;
+        markProgress(`image ${i + 1}/${script.shots.length}`);
+      })();
+
+      const audioTask = (async () => {
+        const audio = await callElevenLabs(elevenKey, voiceId, elevenModel, shot);
+        const audioKey = `sites/${siteName}/assets/jobs/${job.id}/Narr_S_${i + 1}.mp3`;
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: bucketName,
+            Key: audioKey,
+            Body: audio.body,
+            ContentType: audio.contentType,
+            CacheControl: "public, max-age=31536000, immutable",
+          }),
+        );
+        assetsByShotId[shot.shot_id].audio_src = `${origin}/${audioKey}`;
+        markProgress(`audio ${i + 1}/${script.shots.length}`);
+      })();
+
+      await Promise.all([imageTask, audioTask]);
+      finishedShots++;
+      set({ completedShots: finishedShots });
+    });
 
     const renderParams = {
       layout_preset: "frame_matte",
