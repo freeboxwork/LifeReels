@@ -2,6 +2,10 @@ import { getRenderProgress, renderMediaOnLambda } from "@remotion/lambda/client"
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 export type Env = {
+  PIPELINE_JOBS_KV?: {
+    get: (key: string, type: "json") => Promise<unknown | null>;
+    put: (key: string, value: string, options?: { expirationTtl?: number }) => Promise<void>;
+  };
   OPENAI_API_KEY?: string;
   VITE_OPENAI_API_KEY?: string;
   VITE_OPENAI_MODEL?: string;
@@ -77,12 +81,31 @@ type ScriptV2 = {
 };
 
 const jobs = new Map<string, PipelineJob>();
+const JOB_TTL_SECONDS = 60 * 60 * 24;
 
-export function getJob(id: string) {
+function jobKey(id: string) {
+  return `pipeline:job:${id}`;
+}
+
+async function writeJob(env: Env, job: PipelineJob) {
+  const kv = env.PIPELINE_JOBS_KV;
+  if (kv) {
+    await kv.put(jobKey(job.id), JSON.stringify(job), { expirationTtl: JOB_TTL_SECONDS });
+  } else {
+    jobs.set(job.id, job);
+  }
+}
+
+export async function getJob(env: Env, id: string) {
+  const kv = env.PIPELINE_JOBS_KV;
+  if (kv) {
+    const data = await kv.get(jobKey(id), "json");
+    return (data as PipelineJob | null) ?? undefined;
+  }
   return jobs.get(id);
 }
 
-export function createJob(): PipelineJob {
+export async function createJob(env: Env): Promise<PipelineJob> {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
   const id = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -93,13 +116,13 @@ export function createJob(): PipelineJob {
     progress: 0,
     message: "Queued",
   };
-  jobs.set(id, job);
+  await writeJob(env, job);
   return job;
 }
 
-export function setJob(job: PipelineJob, patch: Partial<PipelineJob>) {
+export async function setJob(env: Env, job: PipelineJob, patch: Partial<PipelineJob>) {
   const next = { ...job, ...patch };
-  jobs.set(job.id, next);
+  await writeJob(env, next);
   return next;
 }
 
@@ -293,7 +316,11 @@ function makeRenderPlan(script: ScriptV2) {
 
 export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: string) {
   try {
-    setJob(job, { status: "generating_scenario", progress: 0.06, message: "Generating scenario..." });
+    job = await setJob(env, job, {
+      status: "generating_scenario",
+      progress: 0.06,
+      message: "Generating scenario...",
+    });
 
     const openaiKey = String(env.OPENAI_API_KEY ?? env.VITE_OPENAI_API_KEY ?? "").trim();
     if (!openaiKey) throw new Error("Missing env: OPENAI_API_KEY (or VITE_OPENAI_API_KEY)");
@@ -312,7 +339,7 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
 
     const scenarioText = await callOpenAiResponses(openaiKey, openaiModel, buildScenarioPrompt(diaryText));
     const script = parseScenarioText(scenarioText);
-    setJob(job, { totalShots: script.shots.length, completedShots: 0 });
+    job = await setJob(env, job, { totalShots: script.shots.length, completedShots: 0 });
 
     const s3 = new S3Client({
       region,
@@ -329,7 +356,11 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
     const assetsByShotId: Record<string, { image_src: string; audio_src: string }> = {};
     const plan = makeRenderPlan(script);
 
-    setJob(job, { status: "generating_images", progress: 0.12, message: "Generating images..." });
+    job = await setJob(env, job, {
+      status: "generating_images",
+      progress: 0.12,
+      message: "Generating images...",
+    });
     for (let i = 0; i < script.shots.length; i++) {
       const shot = script.shots[i];
       const image = await callOpenAiImage(openaiKey, imageModel, buildImagePrompt(shot));
@@ -345,14 +376,18 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       );
       const imgUrl = `${origin}/${imageKey}`;
       assetsByShotId[shot.shot_id] = { image_src: imgUrl, audio_src: "" };
-      setJob(job, {
+      job = await setJob(env, job, {
         progress: 0.12 + ((i + 1) / script.shots.length) * 0.28,
         message: `Generating images... (${i + 1}/${script.shots.length})`,
         completedShots: i + 1,
       });
     }
 
-    setJob(job, { status: "generating_narration", progress: 0.42, message: "Generating narration..." });
+    job = await setJob(env, job, {
+      status: "generating_narration",
+      progress: 0.42,
+      message: "Generating narration...",
+    });
     for (let i = 0; i < script.shots.length; i++) {
       const shot = script.shots[i];
       const audio = await callElevenLabs(elevenKey, voiceId, elevenModel, shot);
@@ -367,7 +402,7 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
         }),
       );
       assetsByShotId[shot.shot_id].audio_src = `${origin}/${audioKey}`;
-      setJob(job, {
+      job = await setJob(env, job, {
         progress: 0.42 + ((i + 1) / script.shots.length) * 0.28,
         message: `Generating narration... (${i + 1}/${script.shots.length})`,
         completedShots: i + 1,
@@ -408,7 +443,11 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       render_plan: plan,
     };
 
-    setJob(job, { status: "rendering_video", progress: 0.8, message: "Rendering video (AWS)..." });
+    job = await setJob(env, job, {
+      status: "rendering_video",
+      progress: 0.8,
+      message: "Rendering video (AWS)...",
+    });
     const requestedConcurrency = parsePositiveInt(env.REMOTION_LAMBDA_CONCURRENCY, 0);
     const framesPerLambda = parsePositiveInt(env.REMOTION_FRAMES_PER_LAMBDA, 40);
     const maxRetries = parsePositiveInt(env.REMOTION_MAX_RETRIES, 1);
@@ -454,19 +493,19 @@ export async function runPipelineJob(env: Env, job: PipelineJob, diaryText: stri
       if (p.fatalErrorEncountered) {
         throw new Error(p.errors?.[0]?.message ?? "AWS render failed.");
       }
-      setJob(job, {
+      job = await setJob(env, job, {
         progress: 0.8 + clamp(Number(p.overallProgress ?? 0), 0, 1) * 0.18,
         message: `Rendering video (AWS)... ${Math.round(clamp(Number(p.overallProgress ?? 0), 0, 1) * 100)}%`,
       });
       if (p.done) {
         if (!p.outputFile) throw new Error("Render done but output URL missing.");
-        setJob(job, { status: "done", progress: 1, message: "Done", outputUrl: p.outputFile });
+        await setJob(env, job, { status: "done", progress: 1, message: "Done", outputUrl: p.outputFile });
         break;
       }
       await new Promise((r) => setTimeout(r, pollMs));
     }
   } catch (err) {
-    setJob(job, {
+    await setJob(env, job, {
       status: "error",
       message: "Error",
       error: err instanceof Error ? err.message : String(err),

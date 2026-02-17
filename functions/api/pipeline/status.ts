@@ -11,7 +11,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     });
   }
 
-  const job = getJob(id);
+  const job = await getJob(context.env, id);
   if (!job) {
     return new Response(JSON.stringify({ error: "Job not found." }), {
       status: 404,
@@ -24,4 +24,3 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     headers: { "Content-Type": "application/json" },
   });
 };
-

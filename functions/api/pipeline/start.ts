@@ -20,7 +20,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     });
   }
 
-  const job = createJob();
+  const job = await createJob(context.env);
   context.waitUntil(runPipelineJob(context.env, job, diaryText));
 
   return new Response(JSON.stringify({ id: job.id }), {
@@ -28,4 +28,3 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     headers: { "Content-Type": "application/json" },
   });
 };
-

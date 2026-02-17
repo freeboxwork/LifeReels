@@ -75,7 +75,11 @@ REMOTION_BGM_SRC=https://.../sites/<site>/assets/bgm/<file>.mp3
 ```
 
 Note:
-- Current job status storage is in-memory (per worker instance). For production reliability, move status to durable storage (KV/D1/External DB).
+- Pipeline status storage supports Cloudflare KV via binding `PIPELINE_JOBS_KV`.
+- If `PIPELINE_JOBS_KV` is not bound, in-memory fallback is used (not reliable across worker restarts).
+- In Cloudflare Pages: `Project -> Settings -> Functions -> KV namespace bindings`
+  - Variable name: `PIPELINE_JOBS_KV`
+  - Value: your KV namespace
 
 For local Supabase started by CLI:
 - `VITE_SUPABASE_URL=http://127.0.0.1:54321`
