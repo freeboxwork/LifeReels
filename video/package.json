@@ -1,0 +1,26 @@
+{
+  "name": "lifereels-video",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "preview": "remotion preview src/index.ts",
+    "resolve-props": "node scripts/resolve-render-plan.mjs sample-props.json resolved-props.json",
+    "render": "npm run resolve-props && remotion render src/index.ts LifeReels out/lifereels.mp4 --props=resolved-props.json"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.422",
+    "fluentui-emoji-js": "^1.2.1",
+    "music-metadata": "^11.9.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.422",
+    "zod": "3.22.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "^5.9.3"
+  }
+}

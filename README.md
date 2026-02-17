@@ -81,12 +81,33 @@ npm run dev
 ## Diary Scenario Prototype (No login required)
 
 - Enter diary text in `Diary to Scenario (Prototype)` section.
-- Click `완성` to call OpenAI API and generate a `reels_script_v1` style scenario JSON.
+- Click `완성` to call OpenAI API and generate a `reels_script_v2` JSON.
 - Generated shots are rendered in the UI immediately.
+- Then click `Generate Image + Narration` to generate per-shot assets:
+  - image: `gpt-image-1-mini` (portrait `1024x1536`, `quality=low`)
+  - narration: `tts-1` with voice `shimmer` (MP3)
+
+### reels_script_v1 / v2 strategy
+
+- `reels_script_v1` type is kept for backward compatibility.
+- New generation target is `reels_script_v2` only.
+- If old `v1` data is loaded, app upgrades it to `v2` with default `narration_direction`.
+
+### reels_script_v2 validation
+
+- JSON Schema validation with `additionalProperties=false`
+- Extra app-level validation: `sum(shots.duration_seconds) === 15`
+- Errors returned for:
+  - missing `narration_direction`
+  - invalid narration label taxonomy
+  - out-of-range values (e.g. `intensity`)
 
 Note:
 - This fast prototype calls OpenAI directly from frontend using `VITE_OPENAI_API_KEY`.
 - Do not use this pattern for production without a secure backend proxy.
+- If you see `401 invalid_api_key`, your key is wrong or malformed.
+  Use a real OpenAI API key from `https://platform.openai.com/api-keys` (typically starts with `sk-`), update Cloudflare Pages variables, then redeploy.
+- Test command: `npm run test`
 
 ## Google login setup
 
