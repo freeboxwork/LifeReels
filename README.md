@@ -55,6 +55,28 @@ VITE_OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 VITE_OPENAI_MODEL=gpt-4.1-mini
 ```
 
+Cloudflare Pages Functions pipeline (`/api/pipeline/start`, `/api/pipeline/status`) needs server-side vars:
+
+```env
+OPENAI_API_KEY=...
+ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID=...
+ELEVENLABS_MODEL_ID=eleven_flash_v2_5
+REMOTION_AWS_REGION=us-east-1
+REMOTION_FUNCTION_NAME=...
+REMOTION_SERVE_URL=...
+REMOTION_AWS_ACCESS_KEY_ID=...
+REMOTION_AWS_SECRET_ACCESS_KEY=...
+REMOTION_AWS_SESSION_TOKEN=...
+REMOTION_LAMBDA_CONCURRENCY=6
+REMOTION_MAX_RETRIES=1
+REMOTION_PROGRESS_POLL_MS=1500
+REMOTION_BGM_SRC=https://.../sites/<site>/assets/bgm/<file>.mp3
+```
+
+Note:
+- Current job status storage is in-memory (per worker instance). For production reliability, move status to durable storage (KV/D1/External DB).
+
 For local Supabase started by CLI:
 - `VITE_SUPABASE_URL=http://127.0.0.1:54321`
 - `VITE_SUPABASE_ANON_KEY` from `npx supabase status`
