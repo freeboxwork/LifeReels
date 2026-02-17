@@ -1,5 +1,6 @@
 import { getRenderProgress, renderMediaOnLambda } from "@remotion/lambda/client";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { randomBytes } from "node:crypto";
 
 type JobStatus =
   | "queued"
@@ -91,7 +92,7 @@ function clamp(v: number, min: number, max: number) {
 }
 
 function nowJobId() {
-  const n = crypto.randomBytes(8);
+  const n = randomBytes(8);
   return n.toString("hex");
 }
 
@@ -470,4 +471,3 @@ export const handler = async (event: EventV2) => {
     return json(500, { error: e instanceof Error ? e.message : String(e) });
   }
 };
-

@@ -45,6 +45,10 @@ if (Test-Path $distDir) { Remove-Item $distDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 Push-Location $root
 npm.cmd exec --yes -- esbuild bridge-lambda/src/handler.ts --bundle --platform=node --target=node20 --format=cjs --outfile=bridge-lambda/dist/index.js
+$outFile = Join-Path $distDir "index.js"
+$content = Get-Content -Raw -Path $outFile
+$content = $content.Replace("(0, import_node_module.createRequire)(import_meta.url)", "(0, import_node_module.createRequire)('/var/task/index.js')")
+Set-Content -Path $outFile -Value $content -Encoding utf8
 Pop-Location
 
 Write-Host "[2/6] Create zip..."
