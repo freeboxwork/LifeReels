@@ -102,6 +102,10 @@ if (-not $exists) {
     --region $Region | Out-Null
 }
 
+& $aws lambda wait function-updated `
+  --function-name $FunctionName `
+  --region $Region
+
 Write-Host "[5/6] Update environment..."
 $envMap = Get-EnvFromDotEnv -Path (Join-Path $root ".env")
 $vars = @{
@@ -132,11 +136,13 @@ if ($envMap.ContainsKey("REMOTION_AWS_SESSION_TOKEN") -and -not [string]::IsNull
   $vars["REMOTION_AWS_SESSION_TOKEN"] = [string]$envMap["REMOTION_AWS_SESSION_TOKEN"]
 }
 
-$jsonVars = @{ Variables = $vars } | ConvertTo-Json -Depth 8 -Compress
+$jsonVars = @{ Variables = $vars } | ConvertTo-Json -Depth 8
+$tmpEnv = Join-Path $bridgeDir "lambda-env.json"
+Set-Content -Path $tmpEnv -Value $jsonVars -Encoding ascii
 & $aws lambda update-function-configuration `
   --function-name $FunctionName `
   --region $Region `
-  --environment $jsonVars | Out-Null
+  --environment ("file://" + $tmpEnv.Replace("\","/")) | Out-Null
 
 Write-Host "[6/6] Ensure Function URL..."
 try {
