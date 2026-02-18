@@ -4,3 +4,6 @@ dist/
 .env.local
 .npm-cache/
 PROJECT_HANDOFF.md
+*.md
+SamplePages/
+SampleResource/

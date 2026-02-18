@@ -6,6 +6,11 @@ import {
   generateElevenLabsNarrationAudioViaProxy,
 } from "./lib/elevenlabsTts";
 
+type DiaryScenarioPrototypeProps = {
+  onScenarioGenerated?: (scenario: ReelScriptV2) => void;
+  onSummaryGenerated?: (summary: { title: string; emotion: string; lines: string[] }) => void;
+};
+
 type ResponsesApiResponse = {
   output_text?: string;
   output?: Array<{
@@ -149,6 +154,150 @@ function normalizeApiKey(value: string) {
   return value.trim().replace(/^['"]|['"]$/g, "");
 }
 
+function parseJsonLenient(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const first = raw.indexOf("{");
+    const last = raw.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      return JSON.parse(raw.slice(first, last + 1));
+    }
+    throw new Error("Failed to parse JSON.");
+  }
+}
+
+const SUMMARY_EMOTIONS = [
+  "기쁨",
+  "따뜻",
+  "쓸쓸",
+  "설렘",
+  "지침",
+  "복잡",
+  "집중",
+  "감사",
+  "외로",
+  "묵묵",
+] as const;
+
+function validateDiarySummary(result: { title?: unknown; emotion?: unknown; lines?: unknown }) {
+  const errors: string[] = [];
+  const title = String(result.title ?? "").trim();
+  const emotion = String(result.emotion ?? "").trim();
+  const lines = Array.isArray(result.lines) ? result.lines.map((x) => String(x ?? "")) : [];
+
+  if (!title) errors.push("title is required.");
+  if (title.length > 7) errors.push(`title too long (${title.length}/7).`);
+  if (!SUMMARY_EMOTIONS.includes(emotion as (typeof SUMMARY_EMOTIONS)[number])) {
+    errors.push(`emotion must be one of: ${SUMMARY_EMOTIONS.join(", ")}`);
+  }
+  if (lines.length !== 5) errors.push(`lines must be 5 items (received ${lines.length}).`);
+  lines.forEach((line, i) => {
+    const t = String(line ?? "").trim();
+    if (!t) errors.push(`line ${i + 1} is empty.`);
+    if (t.length > 14) errors.push(`line ${i + 1} too long (${t.length}/14).`);
+  });
+
+  return { ok: errors.length === 0, errors, value: { title, emotion, lines: lines.map((l) => String(l).trim()) } };
+}
+
+function buildDiarySummaryPrompt(diaryText: string) {
+  return `
+You are a diary summarization assistant for graph-paper UI.
+
+Output rules:
+1) Summarize the diary into exactly 5 lines.
+2) Each line must be 14 characters or fewer (count spaces, punctuation, emojis too).
+3) All lines must be declarative sentences (Korean: ~다, ~니다, ~한다).
+4) Do not use poetic expressions or metaphors.
+5) Reflect the diary facts and emotions in a concise, plain way.
+6) Title must be 7 characters or fewer.
+7) Choose ONE emotion from: ${SUMMARY_EMOTIONS.join(", ")}.
+
+Output format (JSON only):
+{
+  "title": "string (<=7 chars)",
+  "emotion": "one of the allowed emotions",
+  "lines": [
+    "line1 (<=14 chars)",
+    "line2 (<=14 chars)",
+    "line3 (<=14 chars)",
+    "line4 (<=14 chars)",
+    "line5 (<=14 chars)"
+  ]
+}
+
+User diary:
+---
+${diaryText}
+---
+  `.trim();
+}
+
+async function generateDiarySummary(apiKey: string, diaryText: string) {
+  let previous = "";
+  let lastErrors: string[] = [];
+
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    const prompt =
+      attempt === 0
+        ? buildDiarySummaryPrompt(diaryText)
+        : `
+Your previous JSON did not pass validation. Fix it.
+Return ONLY JSON.
+
+Validation errors:
+${lastErrors.map((e) => `- ${e}`).join("\n")}
+
+Previous JSON:
+${previous}
+
+Diary:
+---
+${diaryText}
+---
+        `.trim();
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`OpenAI API error: ${response.status} ${errBody}`);
+    }
+
+    const data = (await response.json()) as ResponsesApiResponse;
+    const outputText = extractTextFromResponse(data);
+    if (!outputText) throw new Error("Summary response was empty.");
+    previous = outputText;
+
+    let parsed: unknown;
+    try {
+      parsed = parseJsonLenient(outputText);
+    } catch (e) {
+      lastErrors = [e instanceof Error ? e.message : String(e)];
+      continue;
+    }
+
+    const v = validateDiarySummary(parsed as any);
+    if (v.ok) {
+      return v.value;
+    }
+    lastErrors = v.errors;
+  }
+
+  throw new Error(`Summary validation failed after retries: ${lastErrors.join(" | ")}`);
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -275,7 +424,7 @@ async function generateImage(apiKey: string, prompt: string) {
   throw new Error("Image payload missing both url and b64_json.");
 }
 
-export default function DiaryScenarioPrototype() {
+export default function DiaryScenarioPrototype(props: DiaryScenarioPrototypeProps) {
   const [diaryText, setDiaryText] = useState("");
   const [loading, setLoading] = useState(false);
   const [pipelineLoading, setPipelineLoading] = useState(false);
@@ -454,6 +603,16 @@ export default function DiaryScenarioPrototype() {
         const validation = parseAndValidateScenarioV2(outputText);
         if (validation.ok) {
           setResult(validation.value);
+          props.onScenarioGenerated?.(validation.value);
+          // Fire-and-forget summary generation for the graph-paper card UI.
+          void (async () => {
+            try {
+              const summary = await generateDiarySummary(apiKey, diaryText);
+              props.onSummaryGenerated?.(summary);
+            } catch {
+              // Non-fatal: keep existing UI.
+            }
+          })();
           return;
         }
 
