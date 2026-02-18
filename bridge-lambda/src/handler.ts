@@ -1,4 +1,4 @@
-import { getRenderProgress, renderMediaOnLambda } from "@remotion/lambda/client";
+﻿import { getRenderProgress, renderMediaOnLambda } from "@remotion/lambda/client";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomBytes } from "node:crypto";
 
@@ -32,6 +32,7 @@ type Shot = {
   image_prompt?: string;
   transition?: string;
   narration_direction?: {
+    label?: string;
     intensity?: number;
     delivery?: {
       speaking_rate?: number;
@@ -50,6 +51,42 @@ type ScriptV2 = {
   tone: string;
   total_duration_seconds?: number;
   shots: Shot[];
+};
+
+type ScriptV3 = {
+  schema_version: "reels_script_v3";
+  language: string;
+  date?: string;
+  title: string;
+  tone: string;
+  target_total_duration_seconds?: number;
+  shots: Array<
+    Shot & {
+      visual_description: string;
+      subtitle: string;
+      narration: string;
+      image_prompt: string;
+      transition: string;
+      narration_direction: {
+        label: string;
+        intensity: number;
+        delivery: {
+          speaking_rate: number;
+          energy: number;
+          pause_ms_before: number;
+          pause_ms_after: number;
+          emphasis_words?: string[];
+        };
+        tts_instruction: string;
+        arc_hint?: string;
+      };
+      timing_hints?: {
+        min_duration_seconds?: number;
+        max_duration_seconds?: number;
+        padding_ms?: number;
+      };
+    }
+  >;
 };
 
 type EventV2 = {
@@ -106,15 +143,103 @@ function inferSiteName(serveUrl: string) {
   return m[1];
 }
 
+function applyPauseText(input: string, beforeMs: number, afterMs: number) {
+  const before = beforeMs >= 600 ? "... " : beforeMs >= 200 ? ", " : "";
+  const after = afterMs >= 600 ? " ..." : afterMs >= 200 ? "," : "";
+  return `${before}${input}${after}`.trim();
+}
+
 function buildScenarioPrompt(diaryText: string) {
-  return [
-    "You are a strict JSON generator for reels_script_v2.",
-    "Return ONLY JSON. No markdown.",
-    "Use Korean language and 5 shots.",
-    "Each shot must include: shot_id, duration_seconds, subtitle, narration, image_prompt, transition, narration_direction.",
-    "Sum of duration_seconds must be 15.",
-    `Diary:\n${diaryText}`,
-  ].join("\n");
+  // Keep aligned with src/DiaryScenarioPrototype.tsx so "Scenario Only" and "Complete" are consistent.
+  return `
+You are a strict JSON generator for a short-form video scenario.
+Return ONLY a valid JSON object. No markdown. No comments.
+Schema version must be reels_script_v2.
+
+Output schema:
+{
+  "schema_version": "reels_script_v2",
+  "language": "ko",
+  "total_duration_seconds": 15,
+  "title": "string",
+  "tone": "string",
+  "narration_defaults": {
+    "label": "optional",
+    "intensity": 0.5,
+    "delivery": {
+      "speaking_rate": 1.0,
+      "energy": 0.5,
+      "pause_ms_before": 150,
+      "pause_ms_after": 150
+    },
+    "tts_instruction": "optional global default"
+  },
+  "shots": [
+    {
+      "shot_id": "s1",
+      "duration_seconds": 3,
+      "visual_description": "string",
+      "subtitle": "string",
+      "narration": "string",
+      "image_prompt": "string",
+      "transition": "cut|fade|crossfade|zoom_in|zoom_out|slide_left|slide_right",
+      "narration_direction": {
+        "label": "calm|warm|anxious|relieved|grateful|joyful|lonely|bittersweet|hopeful|tired|playful|determined",
+        "intensity": 0.0,
+        "arc_hint": "optional subtle arc hint",
+        "delivery": {
+          "speaking_rate": 1.0,
+          "energy": 0.5,
+          "pause_ms_before": 150,
+          "pause_ms_after": 150,
+          "emphasis_words": ["optional"]
+        },
+        "tts_instruction": "natural language direction for TTS"
+      }
+    }
+  ]
+}
+
+Rules:
+- language: ko
+- total_duration_seconds must be 15 exactly
+- sum(shots.duration_seconds) must be 15 exactly
+- Use 5 shots by default
+- Preserve privacy and avoid sensitive personal details
+- narration_direction.label should reflect emotional arc (use at least 2 distinct labels across shots)
+- Every shot must have a distinct tts_instruction text (no duplicates across shots)
+- Do not output fields outside schema
+- additionalProperties are forbidden
+
+Diary:
+${diaryText}
+  `.trim();
+}
+
+function buildScenarioRepairPrompt(diaryText: string, previousJson: string, errors: string[]) {
+  return `
+Your previous JSON did not pass validation. Rewrite it as valid reels_script_v2 JSON only.
+Return ONLY a valid JSON object. No markdown. No comments.
+
+Validation errors to fix:
+${errors.map((e) => `- ${e}`).join("\n")}
+
+Hard constraints:
+- schema_version must be reels_script_v2
+- total_duration_seconds must be 15
+- sum(shots.duration_seconds) must be 15
+- each shot must include narration_direction with required fields
+- use at least 2 distinct narration_direction.label values across shots
+- each shot must have a distinct tts_instruction text
+- use only allowed labels taxonomy
+- no additional properties
+
+Diary:
+${diaryText}
+
+Previous invalid JSON:
+${previousJson}
+  `.trim();
 }
 
 function stripCodeFence(text: string) {
@@ -191,33 +316,112 @@ async function callOpenAiResponses(apiKey: string, model: string, prompt: string
   return out;
 }
 
-function parseScenarioText(text: string): ScriptV2 {
-  const raw = extractFirstJsonObject(text);
-  const parsed = JSON.parse(raw) as Partial<ScriptV2>;
-  if (!parsed || !Array.isArray(parsed.shots) || parsed.shots.length === 0) {
-    throw new Error("Invalid scenario payload.");
+const emotionLabels = [
+  "calm",
+  "warm",
+  "anxious",
+  "relieved",
+  "grateful",
+  "joyful",
+  "lonely",
+  "bittersweet",
+  "hopeful",
+  "tired",
+  "playful",
+  "determined",
+] as const;
+
+function parseScenarioJsonLenient(rawText: string): unknown {
+  const raw = extractFirstJsonObject(rawText);
+  return JSON.parse(raw);
+}
+
+function validateScenarioV2(input: unknown): { ok: true; value: ScriptV2 } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+  if (!input || typeof input !== "object") return { ok: false, errors: ["(root) must be an object."] };
+  const obj = input as Record<string, unknown>;
+
+  if (obj.schema_version !== "reels_script_v2") errors.push("(root).schema_version must be reels_script_v2.");
+  if (typeof obj.language !== "string" || obj.language.length < 2) errors.push("(root).language must be a string.");
+  if (obj.total_duration_seconds !== 15) errors.push("(root).total_duration_seconds must be 15.");
+  if (typeof obj.title !== "string" || !obj.title.trim()) errors.push("(root).title must be a non-empty string.");
+  if (typeof obj.tone !== "string" || !obj.tone.trim()) errors.push("(root).tone must be a non-empty string.");
+
+  const shots = obj.shots;
+  if (!Array.isArray(shots) || shots.length !== 5) {
+    errors.push("(root).shots must be an array of 5 items.");
+    return { ok: false, errors };
   }
-  const normalizedShots = parsed.shots.slice(0, 5).map((s, i) => {
-    const shot = (s ?? {}) as Partial<Shot>;
-    return {
-      shot_id: String(shot.shot_id ?? `S${i + 1}`),
-      duration_seconds: Number(shot.duration_seconds ?? 3),
-      subtitle: String(shot.subtitle ?? "").trim() || `장면 ${i + 1}`,
-      narration: String(shot.narration ?? "").trim() || `장면 ${i + 1} 내레이션`,
-      image_prompt: String(shot.image_prompt ?? shot.visual_description ?? "").trim() || "Korean daily life cinematic still",
-      transition: String(shot.transition ?? "cut"),
-      narration_direction: shot.narration_direction ?? { intensity: 0.5, delivery: { speaking_rate: 1, energy: 0.5 } },
-      visual_description: shot.visual_description,
-    } satisfies Shot;
-  });
-  return {
-    schema_version: String(parsed.schema_version ?? "reels_script_v2"),
-    language: String(parsed.language ?? "ko"),
-    title: String(parsed.title ?? "오늘의 기록"),
-    tone: String(parsed.tone ?? "warm"),
-    total_duration_seconds: Number(parsed.total_duration_seconds ?? 15),
-    shots: normalizedShots,
-  };
+
+  const durationSum = shots.reduce((sum, s) => sum + Number((s as any)?.duration_seconds ?? 0), 0);
+  if (durationSum !== 15) errors.push(`shots duration sum must be 15 seconds (received ${durationSum}).`);
+
+  const labels: string[] = [];
+  const instructions: string[] = [];
+
+  for (let i = 0; i < shots.length; i++) {
+    const s = shots[i] as any;
+    if (!s || typeof s !== "object") {
+      errors.push(`shots[${i}] must be an object.`);
+      continue;
+    }
+    if (typeof s.shot_id !== "string" || !s.shot_id.trim()) errors.push(`shots[${i}].shot_id is required.`);
+    const d = Number(s.duration_seconds);
+    if (!Number.isFinite(d) || d < 1 || d > 6) errors.push(`shots[${i}].duration_seconds must be 1..6.`);
+    if (typeof s.visual_description !== "string" || !s.visual_description.trim()) errors.push(`shots[${i}].visual_description is required.`);
+    if (typeof s.subtitle !== "string" || !s.subtitle.trim()) errors.push(`shots[${i}].subtitle is required.`);
+    if (typeof s.narration !== "string" || !s.narration.trim()) errors.push(`shots[${i}].narration is required.`);
+    if (typeof s.image_prompt !== "string" || !s.image_prompt.trim()) errors.push(`shots[${i}].image_prompt is required.`);
+    if (typeof s.transition !== "string" || !s.transition.trim()) errors.push(`shots[${i}].transition is required.`);
+
+    const nd = s.narration_direction;
+    if (!nd || typeof nd !== "object") {
+      errors.push(`shots[${i}].narration_direction is required.`);
+      continue;
+    }
+    const label = String((nd as any).label ?? "");
+    labels.push(label);
+    if (!emotionLabels.includes(label as any)) errors.push(`shots[${i}].narration_direction.label must be one of the allowed labels.`);
+
+    const intensity = Number((nd as any).intensity);
+    if (!Number.isFinite(intensity) || intensity < 0 || intensity > 1) errors.push(`shots[${i}].narration_direction.intensity must be 0..1.`);
+
+    const tts = String((nd as any).tts_instruction ?? "").trim();
+    if (!tts) errors.push(`shots[${i}].narration_direction.tts_instruction is required.`);
+    instructions.push(tts.trim().toLowerCase());
+
+    const del = (nd as any).delivery;
+    if (!del || typeof del !== "object") {
+      errors.push(`shots[${i}].narration_direction.delivery is required.`);
+      continue;
+    }
+    const speaking = Number(del.speaking_rate);
+    const energy = Number(del.energy);
+    const pBefore = Number(del.pause_ms_before);
+    const pAfter = Number(del.pause_ms_after);
+    if (!Number.isFinite(speaking) || speaking < 0.5 || speaking > 2) errors.push(`shots[${i}].narration_direction.delivery.speaking_rate must be 0.5..2.`);
+    if (!Number.isFinite(energy) || energy < 0 || energy > 1) errors.push(`shots[${i}].narration_direction.delivery.energy must be 0..1.`);
+    if (!Number.isInteger(pBefore) || pBefore < 0 || pBefore > 1500) errors.push(`shots[${i}].narration_direction.delivery.pause_ms_before must be 0..1500.`);
+    if (!Number.isInteger(pAfter) || pAfter < 0 || pAfter > 1500) errors.push(`shots[${i}].narration_direction.delivery.pause_ms_after must be 0..1500.`);
+  }
+
+  if (new Set(labels.filter(Boolean)).size < 2) {
+    errors.push("narration_direction.label should vary across shots (use at least 2 distinct labels).");
+  }
+  const instr = instructions.filter(Boolean);
+  if (new Set(instr).size < instr.length) {
+    errors.push("Each shot must have its own distinct narration_direction.tts_instruction.");
+  }
+
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, value: input as ScriptV2 };
+}
+
+function parseScenarioText(text: string): ScriptV2 {
+  const parsed = parseScenarioJsonLenient(text);
+  const v = validateScenarioV2(parsed);
+  if (!v.ok) throw new Error(`Invalid scenario payload. ${v.errors.join(" | ")}`);
+  return v.value;
 }
 
 function buildImagePrompt(shot: Shot) {
@@ -275,7 +479,11 @@ async function callElevenLabs(apiKey: string, voiceId: string, modelId: string, 
   const speakingRate = clamp(Number(d.speaking_rate ?? 1), 0.5, 2);
   const expressiveness = clamp(intensity * 0.7 + energy * 0.3, 0, 1);
   const body = {
-    text: String(shot.narration ?? "").trim(),
+    text: applyPauseText(
+      String(shot.narration ?? "").trim(),
+      Number(d.pause_ms_before ?? 0),
+      Number(d.pause_ms_after ?? 0),
+    ),
     model_id: modelId,
     language_code: "ko",
     voice_settings: {
@@ -328,6 +536,227 @@ function makeRenderPlan(script: ScriptV2) {
   return { fps, durationInFrames: Math.max(1, cursor), shots: planShots };
 }
 
+function msToFrames(ms: number, fps: number) {
+  return Math.max(0, Math.round((ms / 1000) * fps));
+}
+
+function secondsToFrames(s: number, fps: number) {
+  return Math.max(1, Math.round(s * fps));
+}
+
+function transitionOverlapFrames(transition: string, fps: number) {
+  const t = String(transition || "cut").toLowerCase();
+  const base =
+    t === "cut"
+      ? 0
+      : t === "fade"
+        ? Math.round(fps * 0.35)
+        : t === "crossfade"
+          ? Math.round(fps * 0.4)
+          : Math.round(fps * 0.35);
+  return clamp(base, 0, Math.round(fps * 0.7));
+}
+
+function toScriptV3(script: ScriptV2): ScriptV3 {
+  return {
+    schema_version: "reels_script_v3",
+    language: String(script.language || "ko"),
+    title: String(script.title || "LifeReels"),
+    tone: String(script.tone || "calm"),
+    target_total_duration_seconds: 15,
+    shots: script.shots.slice(0, 5).map((s, i) => {
+      const nd = s.narration_direction ?? {};
+      const d = nd.delivery ?? {};
+      const label = String(nd.label || "calm").toLowerCase();
+      const safeLabel = emotionLabels.includes(label as any) ? label : "calm";
+      return {
+        shot_id: String(s.shot_id || `s${i + 1}`),
+        duration_seconds: Number(s.duration_seconds ?? 3),
+        timing_hints: { min_duration_seconds: 2.2, max_duration_seconds: 6, padding_ms: 150 },
+        visual_description: String(s.visual_description || s.image_prompt || "scene").trim() || "scene",
+        subtitle: String(s.subtitle || "").trim() || `Scene ${i + 1}`,
+        narration: String(s.narration || "").trim() || `Scene ${i + 1}`,
+        image_prompt: String(s.image_prompt || s.visual_description || "scene").trim() || "scene",
+        transition: String(s.transition || "cut"),
+        narration_direction: {
+          label: String(safeLabel),
+          intensity: clamp(Number(nd.intensity ?? 0.5), 0, 1),
+          delivery: {
+            speaking_rate: clamp(Number(d.speaking_rate ?? 1), 0.5, 2),
+            energy: clamp(Number(d.energy ?? 0.5), 0, 1),
+            pause_ms_before: clamp(Number(d.pause_ms_before ?? 150), 0, 1500),
+            pause_ms_after: clamp(Number(d.pause_ms_after ?? 150), 0, 1500),
+            emphasis_words: Array.isArray((d as any).emphasis_words) ? (d as any).emphasis_words : undefined,
+          },
+          tts_instruction: String(nd.tts_instruction || "Speak naturally, calm, and clear.").trim(),
+          arc_hint: (nd as any).arc_hint ? String((nd as any).arc_hint) : undefined,
+        },
+      };
+    }),
+  };
+}
+
+function computeRenderPlanV3(args: {
+  script: ScriptV3;
+  fps: number;
+  renderParams: Record<string, unknown>;
+  assetsByShotId: Record<string, { image_src: string; audio_src: string }>;
+  audioBytesByShotId: Record<string, number>;
+}) {
+  const { script, fps, renderParams, assetsByShotId, audioBytesByShotId } = args;
+  const shots = script.shots;
+
+  const openingEnabled = (renderParams as any).opening_card !== false;
+  const endingEnabled = (renderParams as any).ending_card !== false;
+  const openingSeconds = typeof (renderParams as any).opening_card_seconds === "number" ? Number((renderParams as any).opening_card_seconds) : 1.4;
+  const endingSeconds = typeof (renderParams as any).ending_card_seconds === "number" ? Number((renderParams as any).ending_card_seconds) : 1.2;
+  const openingFrames = openingEnabled ? secondsToFrames(openingSeconds, fps) : 0;
+  const endingFrames = endingEnabled ? secondsToFrames(endingSeconds, fps) : 0;
+
+  const tmp = shots.map((shot) => {
+    const assets = assetsByShotId[shot.shot_id];
+    const bytes = Number(audioBytesByShotId[shot.shot_id] ?? 0);
+    const audioDurationSeconds = bytes > 0 ? (bytes * 8) / 128000 : 0;
+    const audioDurationFrames = secondsToFrames(audioDurationSeconds, fps);
+
+    const pauseBeforeMs = Number(shot.narration_direction?.delivery?.pause_ms_before ?? 0);
+    const pauseAfterMs = Number(shot.narration_direction?.delivery?.pause_ms_after ?? 0);
+    const paddingMs = Number((shot as any).timing_hints?.padding_ms ?? 0);
+
+    const audioStartInFrames = msToFrames(pauseBeforeMs, fps);
+    const pauseAfterFrames = msToFrames(pauseAfterMs, fps);
+    const paddingFrames = msToFrames(paddingMs, fps);
+
+    const requiredFrames = audioStartInFrames + audioDurationFrames + pauseAfterFrames + paddingFrames;
+    const minFrames = (shot as any).timing_hints?.min_duration_seconds
+      ? secondsToFrames(Number((shot as any).timing_hints.min_duration_seconds), fps)
+      : 1;
+    const maxFramesRaw = (shot as any).timing_hints?.max_duration_seconds
+      ? secondsToFrames(Number((shot as any).timing_hints.max_duration_seconds), fps)
+      : null;
+
+    let durationInFrames = Math.max(requiredFrames, minFrames);
+    if (maxFramesRaw !== null && maxFramesRaw >= requiredFrames) {
+      durationInFrames = clamp(durationInFrames, minFrames, maxFramesRaw);
+    }
+    if (bytes <= 0 || audioDurationSeconds <= 0) {
+      const fallbackSeconds = Number(shot.duration_seconds ?? (shot as any).timing_hints?.min_duration_seconds ?? 3);
+      durationInFrames = secondsToFrames(fallbackSeconds, fps);
+    }
+
+    return {
+      shot_id: shot.shot_id,
+      durationInFrames,
+      audioStartInFrames,
+      audioDurationInFrames: audioDurationFrames,
+      pauseAfterFrames,
+      paddingFrames,
+      minFrames,
+      assets,
+      transitionOut: String(shot.transition || "cut"),
+    };
+  });
+
+  const overlapOut = new Array(tmp.length).fill(0);
+  const endFadeOutFrames = new Array(tmp.length).fill(0);
+  for (let i = 0; i < tmp.length; i++) {
+    const isLast = i === tmp.length - 1;
+    const desired = transitionOverlapFrames(tmp[i].transitionOut, fps);
+    if (isLast) {
+      if (String(tmp[i].transitionOut).toLowerCase() === "fade") {
+        endFadeOutFrames[i] = desired;
+      }
+      overlapOut[i] = 0;
+      continue;
+    }
+    const maxAllowed = Math.max(
+      0,
+      Math.min(tmp[i].durationInFrames - 1, tmp[i + 1].durationInFrames - 1, Math.round(fps * 0.9)),
+    );
+    overlapOut[i] = clamp(desired, 0, maxAllowed);
+  }
+
+  const narrationGapMs = typeof (renderParams as any).narration_gap_ms === "number" ? Number((renderParams as any).narration_gap_ms) : 220;
+  const gapFrames = msToFrames(narrationGapMs, fps);
+
+  const computeFroms = () => {
+    const froms = new Array(tmp.length).fill(0);
+    let cursor = 0;
+    for (let i = 0; i < tmp.length; i++) {
+      froms[i] = cursor;
+      cursor += tmp[i].durationInFrames - overlapOut[i];
+    }
+    return froms;
+  };
+
+  const ensureDurFitsAudio = (i: number) => {
+    const required =
+      tmp[i].audioStartInFrames +
+      tmp[i].audioDurationInFrames +
+      tmp[i].pauseAfterFrames +
+      tmp[i].paddingFrames;
+    tmp[i].durationInFrames = Math.max(tmp[i].durationInFrames, required, tmp[i].minFrames);
+  };
+
+  for (let iter = 0; iter < 4; iter++) {
+    const froms = computeFroms();
+    let changed = false;
+    for (let i = 1; i < tmp.length; i++) {
+      const prev = tmp[i - 1];
+      const cur = tmp[i];
+      const prevEnd =
+        froms[i - 1] +
+        prev.audioStartInFrames +
+        prev.audioDurationInFrames +
+        prev.pauseAfterFrames +
+        prev.paddingFrames;
+      const curStart = froms[i] + cur.audioStartInFrames;
+      const minStart = prevEnd + gapFrames;
+      if (curStart < minStart) {
+        const delta = minStart - curStart;
+        cur.audioStartInFrames += delta;
+        ensureDurFitsAudio(i);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  const fromsFinal = computeFroms();
+  const planShots = tmp.map((t, i) => {
+    const overlapInFrames = i === 0 ? 0 : overlapOut[i - 1];
+    return {
+      shot_id: t.shot_id,
+      from: fromsFinal[i] + openingFrames,
+      durationInFrames: t.durationInFrames,
+      audioStartInFrames: t.audioStartInFrames,
+      audioDurationInFrames: t.audioDurationInFrames,
+      overlapInFrames,
+      overlapOutFrames: overlapOut[i],
+      endFadeOutFrames: endFadeOutFrames[i],
+      transitionOut: t.transitionOut,
+      assets: t.assets,
+    };
+  });
+
+  const contentDuration = planShots.length
+    ? planShots[planShots.length - 1].from + planShots[planShots.length - 1].durationInFrames
+    : openingFrames;
+  const totalDuration = Math.max(1, contentDuration + endingFrames);
+
+  for (let i = 0; i < shots.length; i++) {
+    shots[i].duration_seconds = tmp[i].durationInFrames / fps;
+  }
+
+  return {
+    fps,
+    durationInFrames: totalDuration,
+    opening: openingFrames > 0 ? { durationInFrames: openingFrames } : undefined,
+    ending: endingFrames > 0 ? { from: totalDuration - endingFrames, durationInFrames: endingFrames } : undefined,
+    shots: planShots,
+  };
+}
+
 async function mapWithConcurrency<T>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<void>) {
   const queue = items.map((item, index) => ({ item, index }));
   const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
@@ -364,26 +793,30 @@ async function runPipeline(job: Job, diaryText: string) {
 
     const s3 = new S3Client({ region });
     let script: ScriptV2 | null = null;
-    let scenarioErr = "";
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    let previousOutput = "";
+    let lastErrors: string[] = [];
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      const prompt =
+        attempt === 0
+          ? buildScenarioPrompt(diaryText)
+          : buildScenarioRepairPrompt(diaryText, previousOutput, lastErrors);
+      const out = await callOpenAiResponses(openaiKey, openaiModel, prompt);
+      previousOutput = out;
       try {
-        const retryHint =
-          attempt === 1
-            ? ""
-            : `\n\nRetry ${attempt}: Your previous output was invalid. Return one JSON object only. No prose, no markdown, no code fences.`;
-        script = parseScenarioText(await callOpenAiResponses(openaiKey, openaiModel, buildScenarioPrompt(diaryText) + retryHint));
+        script = parseScenarioText(out);
         break;
       } catch (e) {
-        scenarioErr = e instanceof Error ? e.message : String(e);
+        const msg = e instanceof Error ? e.message : String(e);
+        lastErrors = [msg];
       }
     }
     if (!script) {
-      throw new Error(`Invalid scenario payload after retries: ${scenarioErr}`);
+      throw new Error(`Invalid scenario payload after retries: ${lastErrors.join(" | ")}`);
     }
     set({ totalShots: script.shots.length, completedShots: 0 });
 
     const assetsByShotId: Record<string, { image_src: string; audio_src: string }> = {};
-    const plan = makeRenderPlan(script);
+    const audioBytesByShotId: Record<string, number> = {};
 
     set({ status: "generating_images", progress: 0.12, message: "Generating assets..." });
     const assetConcurrency = parsePositiveInt(process.env.REMOTION_ASSET_CONCURRENCY, 3);
@@ -432,6 +865,7 @@ async function runPipeline(job: Job, diaryText: string) {
           }),
         );
         assetsByShotId[shot.shot_id].audio_src = `${origin}/${audioKey}`;
+        audioBytesByShotId[shot.shot_id] = Number((audio.body as Buffer).byteLength ?? 0);
         markProgress(`audio ${i + 1}/${script.shots.length}`);
       })();
 
@@ -459,12 +893,17 @@ async function runPipeline(job: Job, diaryText: string) {
         `${origin}/sites/${siteName}/assets/bgm/BGM-01_warm-lofi-diary_78bpm_30s_loop_v01_type_A.mp3`,
     };
 
-    for (let i = 0; i < plan.shots.length; i++) {
-      plan.shots[i].assets = assetsByShotId[script.shots[i].shot_id];
-    }
+    const scriptV3 = toScriptV3(script);
+    const plan = computeRenderPlanV3({
+      script: scriptV3,
+      fps: 30,
+      renderParams,
+      assetsByShotId,
+      audioBytesByShotId,
+    });
 
     const inputProps = {
-      script,
+      script: scriptV3,
       fps: plan.fps,
       assets_by_shot_id: assetsByShotId,
       render_params: renderParams,
@@ -586,3 +1025,5 @@ export const handler = async (event: EventV2) => {
     return json(500, { error: e instanceof Error ? e.message : String(e) });
   }
 };
+
+
