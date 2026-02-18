@@ -1,0 +1,259 @@
+/* Graph paper background (ported from GridSample/graph-paper.css) */
+.graph-paper {
+  background-color: #fdfbf7;
+  background-image:
+    linear-gradient(rgba(140, 170, 200, 0.22) 1px, transparent 1px),
+    linear-gradient(rgba(160, 185, 210, 0.13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(160, 185, 210, 0.13) 1px, transparent 1px);
+  background-size: 100% 40px, 100% 20px, 20px 100%;
+  background-position: 0 39px, 0 0, 0 0;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.05),
+    0 6px 20px rgba(0, 0, 0, 0.07),
+    inset 0 0 50px rgba(200, 185, 165, 0.1);
+}
+
+/* "After" card layout (ported from GridSample/GraphPaperPreview.jsx) */
+.diary-graph-card {
+  --cell: 20px;
+  --row: calc(var(--cell) * 2);
+  position: relative;
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fdfbf7;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08),
+    inset 0 0 60px rgba(200, 185, 165, 0.12);
+}
+
+.diary-graph-card.fill {
+  height: 100%;
+}
+
+.diary-graph-card .margin-line-1,
+.diary-graph-card .margin-line-2 {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  z-index: 2;
+}
+.diary-graph-card .margin-line-1 {
+  left: 52px;
+  background: rgba(220, 100, 100, 0.3);
+}
+.diary-graph-card .margin-line-2 {
+  left: 55px;
+  background: rgba(220, 100, 100, 0.18);
+}
+
+.diary-graph-card .paper-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.diary-graph-card .paper-content {
+  position: relative;
+  z-index: 3;
+  padding: 0 24px;
+}
+
+.diary-graph-card .title-block {
+  height: calc(var(--row) * 2);
+  display: flex;
+  align-items: center;
+  padding-left: 42px;
+}
+
+.diary-graph-card.title-two-line .title-block {
+  align-items: flex-start;
+  padding-top: 12px;
+  padding-bottom: 6px;
+}
+
+.diary-graph-card .title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #3a3a3a;
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.diary-graph-card .entry-row {
+  height: var(--row);
+  display: flex;
+  align-items: center;
+  padding-left: 42px;
+}
+
+.diary-graph-card .entry-num {
+  width: 30px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #b0a898;
+  text-align: right;
+  padding-right: 6px;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.diary-graph-card .entry-text {
+  font-size: 18px;
+  color: #3d3832;
+  letter-spacing: 0.01em;
+  line-height: var(--row);
+  padding-left: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diary-graph-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.025;
+  pointer-events: none;
+  z-index: 4;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+.diary-graph-paper-font {
+  font-family: "KyoboHandwriting2019", "Batang", "Georgia", "Times New Roman", "Apple SD Gothic Neo", "Malgun Gothic", serif;
+}
+
+/* Editor variant used on the Generate page. */
+.diary-editor-card {
+  --cell: 20px;
+  --row: calc(var(--cell) * 2);
+  position: relative;
+  width: 100%;
+  border-radius: 28px;
+  overflow: hidden;
+  background: #fdfbf7;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 10px 30px rgba(0, 0, 0, 0.08),
+    inset 0 0 80px rgba(200, 185, 165, 0.14);
+}
+
+.diary-editor-card .paper-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.diary-editor-card .margin-line-1,
+.diary-editor-card .margin-line-2 {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  z-index: 2;
+}
+.diary-editor-card .margin-line-1 {
+  left: 52px;
+  background: rgba(220, 100, 100, 0.3);
+}
+.diary-editor-card .margin-line-2 {
+  left: 55px;
+  background: rgba(220, 100, 100, 0.18);
+}
+
+.diary-editor-card .editor-shell {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 720px;
+}
+
+.diary-editor-card .editor-header {
+  height: calc(var(--row) * 2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px 0 42px;
+}
+
+.diary-editor-card .editor-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #2c2c2c;
+}
+
+.diary-editor-card .editor-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(80, 80, 80, 0.55);
+}
+
+.diary-editor-card .editor-body {
+  flex: 1;
+  padding: 0 18px 0 42px;
+}
+
+.diary-editor-card .editor-textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  background: transparent;
+  border: none;
+  resize: none;
+  outline: none;
+  font-size: 20px;
+  line-height: var(--row);
+  color: #3d3832;
+  letter-spacing: 0.01em;
+  padding: 6px 8px 10px 0;
+}
+
+.diary-editor-card .editor-textarea::placeholder {
+  color: rgba(120, 120, 120, 0.55);
+}
+
+.diary-editor-card .editor-footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(8px);
+  padding: 14px 18px;
+}
+
+.diary-editor-card .editor-cta {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 18px;
+  padding: 12px 18px;
+  font-weight: 800;
+  font-size: 14px;
+  color: #181411;
+  background: linear-gradient(135deg, #f9c784 0%, #ffdda8 100%);
+  box-shadow: 0 8px 24px rgba(249, 199, 132, 0.28);
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+
+.diary-editor-card .editor-cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.diary-editor-card .editor-cta:not(:disabled):hover {
+  transform: translateY(-1px);
+}

@@ -1,5 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #f9c784;
+  --color-primary-hover: #f7bc6d;
+  --color-background-light: #e7e7e7;
+  --color-surface-light: #f5f5f5;
+  --color-card-white: #ffffff;
+  --color-text-main: #18181b;
+  --color-text-muted: #52525b;
+  --color-text-auth-muted: #8a7860;
+  --color-border-color: #e6e1db;
+  --color-border-light: #d4d4d8;
+
+  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
 :root {
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   color: #1d1f21;
   background: #f4f6f8;
 }
@@ -12,6 +29,15 @@ body {
   margin: 0;
 }
 
+.hide-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .auth-page {
   min-height: 100vh;
   display: grid;
@@ -22,7 +48,7 @@ body {
   padding: 24px;
 }
 
-.auth-card {
+.auth-page .auth-card {
   width: 100%;
   max-width: 420px;
   background: #ffffff;
@@ -31,27 +57,27 @@ body {
   padding: 24px;
 }
 
-h1 {
+.auth-page h1 {
   margin-top: 0;
   margin-bottom: 18px;
 }
 
-h2,
-h3 {
+.auth-page h2,
+.auth-page h3 {
   margin: 0 0 10px;
 }
 
-.mode-toggle {
+.auth-page .mode-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-bottom: 16px;
 }
 
-.mode-toggle button,
-form button,
-.session-box button,
-.danger-zone button {
+.auth-page .mode-toggle button,
+.auth-page form button,
+.auth-page .session-box button,
+.auth-page .danger-zone button {
   border: 1px solid #bdc8d6;
   border-radius: 8px;
   padding: 10px 12px;
@@ -59,62 +85,62 @@ form button,
   cursor: pointer;
 }
 
-.oauth-button {
+.auth-page .oauth-button {
   width: 100%;
   margin-top: 10px;
 }
 
-.mode-toggle .active {
+.auth-page .mode-toggle .active {
   border-color: #0d6efd;
   background: #e8f1ff;
 }
 
-form {
+.auth-page form {
   display: grid;
   gap: 10px;
   margin-top: 16px;
 }
 
-label {
+.auth-page label {
   font-size: 14px;
   color: #4c5561;
 }
 
-input {
+.auth-page input {
   border: 1px solid #bdc8d6;
   border-radius: 8px;
   padding: 10px 12px;
 }
 
-textarea {
+.auth-page textarea {
   border: 1px solid #bdc8d6;
   border-radius: 8px;
   padding: 10px 12px;
   resize: vertical;
 }
 
-.message {
+.auth-page .message {
   margin-top: 16px;
   font-size: 14px;
 }
 
-.ok {
+.auth-page .ok {
   color: #1c7c3a;
 }
 
-.err {
+.auth-page .err {
   color: #b32424;
 }
 
-.session-box p {
+.auth-page .session-box p {
   margin: 6px 0;
 }
 
-.session-box code {
+.auth-page .session-box code {
   font-size: 12px;
 }
 
-.danger-zone {
+.auth-page .danger-zone {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid #f0c2c2;
@@ -122,13 +148,13 @@ textarea {
   gap: 10px;
 }
 
-.danger-zone p {
+.auth-page .danger-zone p {
   margin: 0;
   font-size: 13px;
   color: #a13b3b;
 }
 
-.danger-zone button {
+.auth-page .danger-zone button {
   border-color: #c95757;
   color: #9f2b2b;
 }
