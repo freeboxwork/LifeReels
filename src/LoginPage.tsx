@@ -121,7 +121,7 @@ export default function LoginPage(props: { onBack?: () => void; onAuthed?: () =>
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin + "/#/" },
+      options: { redirectTo: window.location.origin + "/" },
     });
 
     if (oauthError) {
@@ -141,7 +141,7 @@ export default function LoginPage(props: { onBack?: () => void; onAuthed?: () =>
     setMessage("");
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin + "/#/",
+      redirectTo: window.location.origin + "/",
     });
 
     if (resetError) {

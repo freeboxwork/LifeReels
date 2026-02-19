@@ -19,6 +19,24 @@ export default function App() {
   const { route, query, navigate } = useHashRoute();
 
   useEffect(() => {
+    const hash = String(window.location.hash || "");
+    const hasAuthFragment =
+      hash.startsWith("#/#") ||
+      hash.includes("access_token=") ||
+      hash.includes("refresh_token=") ||
+      hash.includes("provider_token=") ||
+      hash.includes("token_type=");
+
+    // Normalize broken OAuth callback hashes like "#/#access_token=..."
+    // so router actions (login/logout/navigation) behave consistently.
+    if (hasAuthFragment) {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}#/`,
+      );
+    }
+
     if (!window.location.hash) {
       window.location.hash = "#/";
     }
