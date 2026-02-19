@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DiaryGraphPaperCard from "./DiaryGraphPaperCard";
 import type { PipelineJob } from "./pipelineClient";
 import { getPipelineStatus } from "./pipelineClient";
+import AppHeader from "./components/AppHeader";
 
 const DRAFT_KEY = "lifereels.diary.draft.v1";
 const jobDiaryKey = (jobId: string) => `lifereels.job.${jobId}.diaryText`;
@@ -29,25 +30,51 @@ function splitToLines(diaryText: string) {
   }
 
   const lines = raw
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?。]|다\.)\s+|[\n\r]+/g)
+    .split(/[\n\r]+/)
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (lines.length >= 5) return lines.slice(0, 5);
-  if (lines.length >= 3) return lines;
+  // 줄바꿈 기준으로 충분히 나뉜 경우
+  if (lines.length >= 3) return lines.slice(0, 10);
 
+  // 문장 단위로 분리
+  const sentences = raw
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?。]|다\.)\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (sentences.length >= 2) return sentences.slice(0, 10);
+
+  // 길이 기준 청크 분할 (한국어 고려 ~24자)
   const chunks: string[] = [];
-  const step = 22;
-  for (let i = 0; i < raw.length && chunks.length < 5; i += step) {
+  const step = 24;
+  for (let i = 0; i < raw.length && chunks.length < 10; i += step) {
     chunks.push(raw.slice(i, i + step).trim());
   }
-  return chunks.filter(Boolean).slice(0, 5);
+  return chunks.filter(Boolean);
 }
 
 export default function ResultPage(props: { jobId: string; onCreateAnother?: () => void }) {
   const [job, setJob] = useState<PipelineJob | null>(null);
   const [error, setError] = useState("");
+  const [downloadDone, setDownloadDone] = useState(false);
+  const [thumbnailReady, setThumbnailReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pollingStoppedRef = useRef(false);
+
+  // 메타데이터 로드 후 0.5초 지점으로 탐색 → 썸네일 확보
+  const handleLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    // 영상 길이가 0.5초보다 짧으면 duration의 10% 지점 사용
+    video.currentTime = Math.min(0.5, (video.duration || 1) * 0.1);
+  };
+
+  // 탐색 완료 = 해당 프레임이 캔버스에 그려짐 → placeholder 제거
+  const handleSeeked = () => {
+    setThumbnailReady(true);
+  };
 
   const diaryText = useMemo(() => {
     try {
@@ -65,17 +92,24 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
     let t: number | undefined;
 
     const poll = async () => {
-      if (cancelled) return;
+      if (cancelled || pollingStoppedRef.current) return;
       try {
         const next = await getPipelineStatus(props.jobId);
         if (cancelled) return;
         setJob(next);
         setError(next.error ? String(next.error) : "");
+        // Stop polling once done
+        if (next.status === "done" && next.outputUrl) {
+          pollingStoppedRef.current = true;
+          return;
+        }
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Failed to fetch status.");
       } finally {
-        if (!cancelled) t = window.setTimeout(poll, 2000);
+        if (!cancelled && !pollingStoppedRef.current) {
+          t = window.setTimeout(poll, 2000);
+        }
       }
     };
 
@@ -95,84 +129,160 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
     window.location.hash = "#/generate";
   };
 
+  const handleDownloadClick = () => {
+    setDownloadDone(true);
+    setTimeout(() => setDownloadDone(false), 3000);
+  };
+
   return (
-    <div className="bg-background-light text-text-main font-display overflow-x-hidden min-h-screen flex flex-col">
+    <div className="bg-background-light text-text-main font-body overflow-x-hidden min-h-screen flex flex-col page-enter">
+      {/* Background blobs */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-white/60 rounded-full blur-[120px] opacity-40" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[60%] bg-orange-100/40 rounded-full blur-[100px] opacity-30" />
         <div className="absolute top-[40%] left-[60%] w-[30%] h-[30%] bg-yellow-100/40 rounded-full blur-[80px] opacity-20" />
       </div>
 
-      <header className="relative z-20 flex items-center justify-between whitespace-nowrap border-b border-solid border-white/20 px-6 py-4 lg:px-10 bg-background-light/90 backdrop-blur-md">
-        <div className="flex items-center gap-4 text-text-main">
-          <div className="size-8 flex items-center justify-center text-[#e0a656]">
-            <span className="material-symbols-outlined text-3xl">movie_filter</span>
-          </div>
-          <h2 className="text-text-main text-xl font-bold leading-tight tracking-tight">Life Reels</h2>
+      <AppHeader
+        rightContent={
+          <button
+            type="button"
+            onClick={handleCreateAnother}
+            className="flex items-center justify-center rounded-full h-9 bg-white hover:bg-gray-50 transition-colors text-text-main gap-2 text-sm font-bold px-4 border border-gray-200 shadow-sm"
+          >
+            <span className="material-symbols-outlined text-[18px]">add</span>
+            <span className="hidden sm:inline">Create Another</span>
+          </button>
+        }
+      />
+
+      {/* Completion banner */}
+      {isDone && (
+        <div className="relative z-10 w-full bg-gradient-to-r from-primary/20 via-primary/30 to-primary/20 border-b border-primary/30 px-6 py-3 text-center animate-fade-in">
+          <p className="text-text-main font-bold text-sm flex items-center justify-center gap-2">
+            <span className="material-symbols-outlined text-[18px] text-[#c88c10]">celebration</span>
+            Your reel is ready! Download it and share your story.
+          </p>
         </div>
-        <button
-          type="button"
-          onClick={handleCreateAnother}
-          className="flex items-center justify-center rounded-full h-10 bg-white hover:bg-gray-50 transition-colors text-text-main gap-2 text-sm font-bold px-4 border border-gray-200 shadow-sm"
-        >
-          <span className="material-symbols-outlined text-[20px]">add</span>
-          <span className="hidden sm:inline">Create Another</span>
-        </button>
-      </header>
+      )}
 
       <main className="relative z-10 flex flex-1 flex-col items-center py-8 px-4 w-full max-w-[1200px] mx-auto">
         <div className="w-full flex flex-col lg:flex-row gap-8 lg:gap-16 items-start justify-center mt-4">
+          {/* Left: video player + actions */}
           <div className="flex flex-col items-center w-full lg:w-auto shrink-0">
-            <div className="relative w-full max-w-[360px] bg-black rounded-xl overflow-hidden border border-white/60 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)]">
+            <div className="relative w-full max-w-[360px] bg-black rounded-2xl overflow-hidden border border-white/60 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)]">
               <div style={{ aspectRatio: "9 / 16" }} className="w-full">
                 {isDone ? (
-                  <video className="w-full h-full object-cover" src={outputUrl} controls playsInline />
+                  <div className="relative w-full h-full bg-[#111]">
+                    {/* Placeholder — 0.5s 썸네일 준비 전 표시 */}
+                    {!thumbnailReady && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-[#1e1e1e] to-[#141414] z-10 pointer-events-none">
+                        <div className="w-16 h-16 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-primary text-4xl">movie</span>
+                        </div>
+                        <p className="text-white/50 text-sm font-medium">Loading your reel…</p>
+                        <div className="flex gap-1.5">
+                          <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" />
+                          <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0.15s" }} />
+                          <span className="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0.30s" }} />
+                        </div>
+                      </div>
+                    )}
+                    <video
+                      ref={videoRef}
+                      className={"w-full h-full object-cover transition-opacity duration-500 " + (thumbnailReady ? "opacity-100" : "opacity-0")}
+                      src={outputUrl}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={handleLoadedMetadata}
+                      onSeeked={handleSeeked}
+                    />
+                  </div>
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-[linear-gradient(135deg,#F9C784_0%,#FFDCA8_100%)]">
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-[linear-gradient(135deg,#F9C784_0%,#FFDCA8_100%)] gap-4">
                     <div className="text-center px-6">
                       <div className="text-5xl font-black text-[#181411]">{percent}%</div>
                       <div className="mt-2 text-sm font-bold text-[#181411]/80">
                         {job?.status === "error" ? "Render failed" : "Rendering in progress"}
                       </div>
                     </div>
+                    {job?.status !== "error" && (
+                      <div className="flex gap-1">
+                        <span className="w-2 h-2 bg-[#181411]/30 rounded-full animate-bounce" />
+                        <span className="w-2 h-2 bg-[#181411]/30 rounded-full animate-bounce delay-75" />
+                        <span className="w-2 h-2 bg-[#181411]/30 rounded-full animate-bounce delay-150" />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-col w-full max-w-[360px] mt-6 gap-3">
+            {/* Action buttons */}
+            <div className="flex flex-col w-full max-w-[360px] mt-4 gap-2">
               {isDone ? (
-                <a
-                  className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover text-text-main font-bold py-3 px-4 rounded-xl transition-colors shadow-sm"
-                  href={outputUrl}
-                  download
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <span className="material-symbols-outlined">download</span>
-                  Download
-                </a>
+                <>
+                  <a
+                    className={
+                      "flex items-center justify-center gap-2 font-bold py-3 px-4 rounded-xl transition-all shadow-sm " +
+                      (downloadDone
+                        ? "bg-green-500 text-white"
+                        : "bg-primary hover:bg-primary-hover text-text-main")
+                    }
+                    href={outputUrl}
+                    download
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={handleDownloadClick}
+                  >
+                    <span className="material-symbols-outlined">
+                      {downloadDone ? "check_circle" : "download"}
+                    </span>
+                    {downloadDone ? "Downloaded!" : "Download"}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleCreateAnother}
+                    className="flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-text-muted font-medium py-2.5 px-4 rounded-xl border border-border-light transition-colors shadow-sm text-sm"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">add_circle</span>
+                    Create Another Reel
+                  </button>
+                </>
               ) : (
-                <button
-                  type="button"
-                  className="flex items-center justify-center gap-2 bg-white text-text-muted font-medium py-3 px-4 rounded-xl border border-gray-200 transition-colors shadow-sm"
-                  onClick={() => (window.location.hash = `#/loading?id=${encodeURIComponent(props.jobId)}`)}
-                >
-                  <span className="material-symbols-outlined">hourglass_top</span>
-                  View progress
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="flex items-center justify-center gap-2 bg-white text-text-muted font-medium py-3 px-4 rounded-xl border border-gray-200 transition-colors shadow-sm"
+                    onClick={() => (window.location.hash = `#/loading?id=${encodeURIComponent(props.jobId)}`)}
+                  >
+                    <span className="material-symbols-outlined">hourglass_top</span>
+                    View progress
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateAnother}
+                    className="flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-text-muted font-medium py-2 px-4 rounded-xl border border-border-light transition-colors text-sm"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">add_circle</span>
+                    Create Another
+                  </button>
+                </>
               )}
 
               {error ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm font-semibold">
-                  {error}
+                <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm font-semibold">
+                  <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">error</span>
+                  <span>{error}</span>
                 </div>
               ) : null}
             </div>
           </div>
 
-          <div className="flex flex-col w-full lg:max-w-md mt-4 lg:mt-0">
-            <div className="w-full max-w-[360px] aspect-[9/16]">
+          {/* Right: diary card */}
+          <div className="flex flex-col w-full lg:max-w-md mt-4 lg:mt-0 items-center lg:items-start">
+            <div className="w-full max-w-[360px] aspect-[9/16] animate-slide-up">
               <DiaryGraphPaperCard className="h-full max-w-none" fill title={title} narrations={lines} />
             </div>
           </div>

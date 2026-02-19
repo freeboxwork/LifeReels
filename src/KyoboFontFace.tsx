@@ -12,6 +12,7 @@ export const KyoboFontFace: React.FC = () => {
   src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2112@1.0/KyoboHandwriting2020A.woff') format('woff');
   font-weight: normal;
   font-style: normal;
+  font-display: swap;
 }
       `.trim()}
     </style>

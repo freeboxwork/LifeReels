@@ -1,18 +1,42 @@
 @import "tailwindcss";
 
 @theme {
+  /* Primary */
   --color-primary: #f9c784;
   --color-primary-hover: #f7bc6d;
+  /* Darker amber — passes WCAG AA Large (3.4:1 on white) for text use */
+  --color-primary-dark: #c07a00;
+
+  /* Backgrounds & Surfaces */
   --color-background-light: #e7e7e7;
   --color-surface-light: #f5f5f5;
   --color-card-white: #ffffff;
+
+  /* Text */
   --color-text-main: #18181b;
   --color-text-muted: #52525b;
   --color-text-auth-muted: #8a7860;
+
+  /* Borders */
   --color-border-color: #e6e1db;
   --color-border-light: #d4d4d8;
 
+  /* Semantic: Status */
+  --color-status-success: #1c7c3a;
+  --color-status-success-bg: rgba(28, 124, 58, 0.08);
+  --color-status-error: #b32424;
+  --color-status-error-bg: rgba(179, 36, 36, 0.08);
+  --color-status-warning: #b45309;
+  --color-status-warning-bg: rgba(180, 83, 9, 0.08);
+
+  /* Fonts */
   --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Space Grotesk", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+
+  /* Transitions */
+  --transition-fast: 150ms ease-out;
+  --transition-normal: 300ms ease-out;
+  --transition-slow: 500ms ease-out;
 }
 
 :root {
@@ -27,6 +51,100 @@
 
 body {
   margin: 0;
+}
+
+/* ─── Page transition ─────────────────────────────────── */
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-enter {
+  animation: page-fade-in 0.3s ease-out both;
+}
+
+/* ─── Hero stagger animation ──────────────────────────── */
+@keyframes hero-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero-1 { animation: hero-rise 0.55s ease-out 0.05s both; }
+.hero-2 { animation: hero-rise 0.55s ease-out 0.18s both; }
+.hero-3 { animation: hero-rise 0.55s ease-out 0.30s both; }
+.hero-4 { animation: hero-rise 0.55s ease-out 0.42s both; }
+.hero-5 { animation: hero-rise 0.55s ease-out 0.54s both; }
+
+/* ─── Mobile menu slide ───────────────────────────────── */
+@keyframes menu-slide {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.mobile-menu-enter {
+  animation: menu-slide 0.2s ease-out both;
+}
+
+/* ─── Active step glow pulse ─────────────────────────── */
+@keyframes icon-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(249, 199, 132, 0.6),
+                0 0 16px rgba(249, 199, 132, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(249, 199, 132, 0.95),
+                0 0 36px rgba(249, 199, 132, 0.55),
+                0 0 60px rgba(249, 199, 132, 0.2);
+  }
+}
+
+.icon-glow-pulse {
+  animation: icon-glow 1.8s ease-in-out infinite;
+}
+
+/* ─── Loading step done pop ───────────────────────────── */
+@keyframes step-pop {
+  0%   { transform: scale(0);   opacity: 0; }
+  55%  { transform: scale(1.25); }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+.step-done-pop {
+  animation: step-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ─── Focus indicators ────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid #f9c784;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Touch :active feedback ──────────────────────────── */
+@media (hover: none) {
+  button:active,
+  a:active {
+    opacity: 0.72;
+    transform: scale(0.98);
+  }
+}
+
+/* Minimum touch target helper — display 미지정으로 md:hidden 등 Tailwind 유틸리티와 충돌 방지 */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* ─── Reduced motion ─────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .hero-1, .hero-2, .hero-3, .hero-4, .hero-5,
+  .mobile-menu-enter,
+  .step-done-pop,
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .hide-scroll::-webkit-scrollbar {
