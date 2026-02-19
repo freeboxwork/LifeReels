@@ -3,10 +3,14 @@ import { useEffect, useRef, useState } from "react";
 export default function LandingPage(props: {
   onStartWriting?: () => void;
   onLogin?: () => void;
+  isAuthed?: boolean;
+  userLabel?: string;
 }) {
   const onStartWriting =
     props.onStartWriting ?? (() => (window.location.hash = "#/generate"));
   const onLogin = props.onLogin ?? (() => (window.location.hash = "#/login"));
+  const isAuthed = Boolean(props.isAuthed);
+  const userLabel = (props.userLabel || "My Account").trim() || "My Account";
   const currentYear = new Date().getFullYear();
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -59,7 +63,14 @@ export default function LandingPage(props: {
             <nav className="hidden md:flex items-center gap-9" aria-label="Primary navigation">
               <a className="text-text-muted hover:text-text-main transition-colors text-sm font-medium" href="#how-it-works">How it Works</a>
               <a className="text-text-muted hover:text-text-main transition-colors text-sm font-medium" href="#showcase">Showcase</a>
-              <button type="button" className="text-text-muted hover:text-text-main transition-colors text-sm font-medium" onClick={onLogin}>Login</button>
+              {!isAuthed ? (
+                <button type="button" className="text-text-muted hover:text-text-main transition-colors text-sm font-medium" onClick={onLogin}>Login</button>
+              ) : (
+                <div className="inline-flex max-w-[240px] items-center gap-2 rounded-full border border-border-light bg-white px-3 py-1.5">
+                  <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">account_circle</span>
+                  <span className="truncate text-sm font-medium text-text-main" title={userLabel}>{userLabel}</span>
+                </div>
+              )}
             </nav>
 
             <div className="flex items-center gap-2">
@@ -100,10 +111,17 @@ export default function LandingPage(props: {
                 <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">play_circle</span>
                 Showcase
               </a>
-              <button type="button" onClick={() => { closeMenu(); onLogin(); }} className="flex items-center gap-3 rounded-xl px-4 py-3 text-text-main font-medium hover:bg-primary/10 transition-colors text-left">
-                <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">person</span>
-                Login
-              </button>
+              {!isAuthed ? (
+                <button type="button" onClick={() => { closeMenu(); onLogin(); }} className="flex items-center gap-3 rounded-xl px-4 py-3 text-text-main font-medium hover:bg-primary/10 transition-colors text-left">
+                  <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">person</span>
+                  Login
+                </button>
+              ) : (
+                <div className="flex items-center gap-3 rounded-xl px-4 py-3 text-text-main font-medium bg-primary/5">
+                  <span className="material-symbols-outlined text-primary text-[18px]" aria-hidden="true">account_circle</span>
+                  <span className="truncate" title={userLabel}>{userLabel}</span>
+                </div>
+              )}
               <div className="mt-2 pt-2 border-t border-border-light">
                 <button type="button" onClick={() => { closeMenu(); onStartWriting(); }} className="w-full flex items-center justify-center gap-2 rounded-full h-12 bg-primary hover:bg-primary-hover transition-colors text-[#181411] font-bold">
                   <span className="material-symbols-outlined text-[18px]" aria-hidden="true">edit_note</span>
