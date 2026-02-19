@@ -23,6 +23,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   return new Response(text, {
     status: upstream.status,
-    headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/json" },
+    headers: {
+      "Content-Type": upstream.headers.get("content-type") ?? "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
   });
 };

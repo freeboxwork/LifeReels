@@ -109,7 +109,12 @@ const JOBS_PREFIX = "pipeline-jobs";
 function json(statusCode: number, obj: unknown) {
   return {
     statusCode,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store, no-cache, must-revalidate",
+      pragma: "no-cache",
+      expires: "0",
+    },
     body: JSON.stringify(obj),
   };
 }

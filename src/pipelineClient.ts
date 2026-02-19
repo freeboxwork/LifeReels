@@ -33,9 +33,10 @@ export async function startPipeline(diaryText: string) {
 }
 
 export async function getPipelineStatus(id: string): Promise<PipelineJob> {
-  const resp = await fetch(`/api/pipeline/status?id=${encodeURIComponent(id)}`);
+  const resp = await fetch(`/api/pipeline/status?id=${encodeURIComponent(id)}&t=${Date.now()}`, {
+    cache: "no-store",
+  });
   const text = await resp.text();
   if (!resp.ok) throw new Error(text || `Pipeline status failed: ${resp.status}`);
   return JSON.parse(text) as PipelineJob;
 }
-
