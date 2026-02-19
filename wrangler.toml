@@ -11,10 +11,3 @@ id = "dad3c99d9a1d480d9ca4c5b118fea55e"
 [[env.preview.kv_namespaces]]
 binding = "PIPELINE_JOBS_KV"
 id = "dad3c99d9a1d480d9ca4c5b118fea55e"
-
-[env.production.vars]
-VITE_OPENAI_API_KE = "lLlBR9FSzqdHAzTGtLdxZX-ctvoShWEXiX_II0j1a2w9UrR2fNnSBtPKX9gw2T3BlbkFJIrNErmfiU8gT2oR2WmDbuWRBxdmK2eMS0fJUuRvwISKyziTgwz5zT6-6yb-t74Cs30rZftRcAA"
-VITE_OPENAI_API_KEY = "lLlBR9FSzqdHAzTGtLdxZX-ctvoShWEXiX_II0j1a2w9UrR2fNnSBtPKX9gw2T3BlbkFJIrNErmfiU8gT2oR2WmDbuWRBxdmK2eMS0fJUuRvwISKyziTgwz5zT6-6yb-t74Cs30rZftRcAA"
-VITE_OPENAI_MODE = "gpt-4.1-min"
-VITE_SUPABASE_ANON_KEY = "sb_publishable_xI_YCuYKyVcwd9v6TltfkA_KHdcvHIH"
-VITE_SUPABASE_URL = "https://ceiqlmdueurjkktpfslz.supabase.co"
