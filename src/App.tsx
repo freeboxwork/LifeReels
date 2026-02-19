@@ -189,7 +189,12 @@ export default function App() {
       key={routeKey}
       onStartWriting={() => navigate("generate")}
       onLogin={() => navigate("login")}
+      onLogout={async () => {
+        await supabase.auth.signOut();
+        navigate("home");
+      }}
       isAuthed={isAuthed}
+      authReady={authReady}
       userLabel={userLabel}
     />
   );
