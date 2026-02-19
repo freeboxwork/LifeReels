@@ -244,6 +244,9 @@ export default function LoadingPage(props: { jobId: string; onDone?: (outputUrl:
                 <p className="text-text-muted text-base leading-relaxed">
                   {job?.message ? job.message : STAGE_DESCRIPTIONS[stage]}
                 </p>
+                <p className="text-text-muted text-sm mt-3">
+                  Video production takes about 5 minutes.
+                </p>
               </div>
 
               {/* Error recovery buttons */}
