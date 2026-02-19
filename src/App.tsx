@@ -10,6 +10,23 @@ import LoadingPage from "./LoadingPage";
 import ResultPage from "./ResultPage";
 import { supabase } from "./supabaseClient";
 
+function parseHashAuthTokens(hash: string): { accessToken: string; refreshToken: string } | null {
+  const raw = String(hash || "").trim();
+  if (!raw) return null;
+
+  // Handles "#access_token=..." and broken "#/#access_token=..." forms.
+  const cleaned = raw
+    .replace(/^#\/?/, "")
+    .replace(/^#/, "");
+
+  const params = new URLSearchParams(cleaned);
+  const accessToken = String(params.get("access_token") || "").trim();
+  const refreshToken = String(params.get("refresh_token") || "").trim();
+
+  if (!accessToken || !refreshToken) return null;
+  return { accessToken, refreshToken };
+}
+
 export default function App() {
   const [graphTitle, setGraphTitle] = useState<string>("");
   const [graphNarrations, setGraphNarrations] = useState<string[]>([]);
@@ -19,27 +36,56 @@ export default function App() {
   const { route, query, navigate } = useHashRoute();
 
   useEffect(() => {
-    const hash = String(window.location.hash || "");
-    const hasAuthFragment =
-      hash.startsWith("#/#") ||
-      hash.includes("access_token=") ||
-      hash.includes("refresh_token=") ||
-      hash.includes("provider_token=") ||
-      hash.includes("token_type=");
+    let cancelled = false;
 
-    // Normalize broken OAuth callback hashes like "#/#access_token=..."
-    // so router actions (login/logout/navigation) behave consistently.
-    if (hasAuthFragment) {
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${window.location.search}#/`,
-      );
+    async function bootstrapHash() {
+      const hash = String(window.location.hash || "");
+      const tokens = parseHashAuthTokens(hash);
+
+      // If OAuth tokens exist in hash, persist session first, then cleanup URL.
+      if (tokens) {
+        try {
+          await supabase.auth.setSession({
+            access_token: tokens.accessToken,
+            refresh_token: tokens.refreshToken,
+          });
+        } catch {
+          // Ignore and continue to URL cleanup/fallback routing.
+        }
+
+        if (cancelled) return;
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}#/`,
+        );
+        return;
+      }
+
+      // Cleanup only non-session auth fragments such as "#/#..." leftovers.
+      const hasBrokenAuthHash =
+        hash.startsWith("#/#") ||
+        hash.includes("provider_token=") ||
+        hash.includes("token_type=");
+      if (hasBrokenAuthHash) {
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}#/`,
+        );
+        return;
+      }
+
+      if (!window.location.hash) {
+        window.location.hash = "#/";
+      }
     }
 
-    if (!window.location.hash) {
-      window.location.hash = "#/";
-    }
+    void bootstrapHash();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
