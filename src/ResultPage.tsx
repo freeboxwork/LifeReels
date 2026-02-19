@@ -3,6 +3,7 @@ import DiaryGraphPaperCard from "./DiaryGraphPaperCard";
 import type { PipelineJob } from "./pipelineClient";
 import { getPipelineStatus } from "./pipelineClient";
 import AppHeader from "./components/AppHeader";
+import { supabase } from "./supabaseClient";
 
 const DRAFT_KEY = "lifereels.diary.draft.v1";
 const jobDiaryKey = (jobId: string) => `lifereels.job.${jobId}.diaryText`;
@@ -60,8 +61,11 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
   const [error, setError] = useState("");
   const [downloadDone, setDownloadDone] = useState(false);
   const [thumbnailReady, setThumbnailReady] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "failed">("idle");
+  const [emailStatusMessage, setEmailStatusMessage] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const pollingStoppedRef = useRef(false);
+  const emailSentRef = useRef(false);
 
   // 메타데이터 로드 후 0.5초 지점으로 탐색 → 썸네일 확보
   const handleLoadedMetadata = () => {
@@ -124,6 +128,56 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
   const isDone = job?.status === "done" && Boolean(outputUrl);
   const percent = Math.round(clamp(Number(job?.progress ?? 0), 0, 1) * 100);
 
+  useEffect(() => {
+    if (!isDone || !outputUrl || emailSentRef.current) return;
+
+    let cancelled = false;
+
+    const sendResultEmail = async () => {
+      setEmailStatus("sending");
+      setEmailStatusMessage("Sending your video link to your email...");
+
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = String(data.session?.access_token ?? "").trim();
+        if (!token) throw new Error("No active session.");
+
+        const resp = await fetch("/api/notify/reel-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            jobId: props.jobId,
+            outputUrl,
+          }),
+        });
+
+        const raw = await resp.text();
+        if (!resp.ok) throw new Error(raw || `Failed to send email: ${resp.status}`);
+        if (cancelled) return;
+
+        emailSentRef.current = true;
+        setEmailStatus("sent");
+        setEmailStatusMessage("Your video link has been sent to your email.");
+      } catch (e) {
+        if (cancelled) return;
+        setEmailStatus("failed");
+        setEmailStatusMessage(
+          e instanceof Error
+            ? `Email delivery failed: ${e.message}`
+            : "Email delivery failed.",
+        );
+      }
+    };
+
+    void sendResultEmail();
+    return () => {
+      cancelled = true;
+    };
+  }, [isDone, outputUrl, props.jobId]);
+
   const handleCreateAnother = () => {
     if (props.onCreateAnother) return props.onCreateAnother();
     window.location.hash = "#/generate";
@@ -161,8 +215,13 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
         <div className="relative z-10 w-full bg-gradient-to-r from-primary/20 via-primary/30 to-primary/20 border-b border-primary/30 px-6 py-3 text-center animate-fade-in">
           <p className="text-text-main font-bold text-sm flex items-center justify-center gap-2">
             <span className="material-symbols-outlined text-[18px] text-[#c88c10]">celebration</span>
-            Your reel is ready! Download it and share your story.
+            {emailStatus === "sent"
+              ? "Your reel is ready. We sent your video link by email."
+              : "Your reel is ready! Download it and share your story."}
           </p>
+          {(emailStatus === "sending" || emailStatus === "failed") && (
+            <p className="text-xs text-text-muted mt-1">{emailStatusMessage}</p>
+          )}
         </div>
       )}
 
