@@ -20,9 +20,16 @@ export default function App() {
     }
   }, []);
 
+  // routeKey forces React to remount (and re-animate) page components on every route change.
+  // LoadingPage/ResultPage include the job id so result/loading re-mounts if a new job starts.
+  const loadingId = route === "loading" ? String(query.get("id") ?? "") : "";
+  const resultId  = route === "result"  ? String(query.get("id") ?? "") : "";
+  const routeKey  = [route, loadingId, resultId].join(":");
+
   if (route === "login") {
     return (
       <LoginPage
+        key={routeKey}
         onBack={() => navigate("home")}
         onAuthed={() => navigate("home")}
       />
@@ -32,6 +39,7 @@ export default function App() {
   if (route === "generate") {
     return (
       <GeneratePage
+        key={routeKey}
         onStarted={(jobId) => {
           window.location.hash = `#/loading?id=${encodeURIComponent(jobId)}`;
         }}
@@ -40,10 +48,10 @@ export default function App() {
   }
 
   if (route === "loading") {
-    const id = String(query.get("id") ?? "").trim();
+    const id = loadingId.trim();
     if (!id) {
       return (
-        <div className="min-h-screen bg-background-light flex items-center justify-center p-8 font-display text-text-main">
+        <div key={routeKey} className="min-h-screen bg-background-light flex items-center justify-center p-8 font-display text-text-main page-enter">
           <div className="max-w-md w-full rounded-2xl bg-white border border-border-light p-6 shadow-sm">
             <h1 className="text-xl font-black">Missing job id</h1>
             <p className="text-text-muted mt-2">Open this page via Generate, or pass `#/loading?id=...`</p>
@@ -60,6 +68,7 @@ export default function App() {
     }
     return (
       <LoadingPage
+        key={routeKey}
         jobId={id}
         onDone={() => {
           window.location.hash = `#/result?id=${encodeURIComponent(id)}`;
@@ -69,10 +78,10 @@ export default function App() {
   }
 
   if (route === "result") {
-    const id = String(query.get("id") ?? "").trim();
+    const id = resultId.trim();
     if (!id) {
       return (
-        <div className="min-h-screen bg-background-light flex items-center justify-center p-8 font-display text-text-main">
+        <div key={routeKey} className="min-h-screen bg-background-light flex items-center justify-center p-8 font-display text-text-main page-enter">
           <div className="max-w-md w-full rounded-2xl bg-white border border-border-light p-6 shadow-sm">
             <h1 className="text-xl font-black">Missing job id</h1>
             <p className="text-text-muted mt-2">Open this page via Loading, or pass `#/result?id=...`</p>
@@ -87,12 +96,12 @@ export default function App() {
         </div>
       );
     }
-    return <ResultPage jobId={id} onCreateAnother={() => navigate("generate")} />;
+    return <ResultPage key={routeKey} jobId={id} onCreateAnother={() => navigate("generate")} />;
   }
 
   if (route === "prototype") {
     return (
-      <main className="auth-page" id="diary">
+      <main key={routeKey} className="auth-page" id="diary">
         <DiaryGraphPaperCard title={graphTitle} narrations={graphNarrations} />
         <DiaryScenarioPrototype
           onScenarioGenerated={(scenario: ReelScriptV2) => {
@@ -113,11 +122,10 @@ export default function App() {
   }
 
   return (
-    <>
-      <LandingPage
-        onStartWriting={() => navigate("generate")}
-        onLogin={() => navigate("login")}
-      />
-    </>
+    <LandingPage
+      key={routeKey}
+      onStartWriting={() => navigate("generate")}
+      onLogin={() => navigate("login")}
+    />
   );
 }

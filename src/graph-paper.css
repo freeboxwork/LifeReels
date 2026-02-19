@@ -30,6 +30,8 @@
 
 .diary-graph-card.fill {
   height: 100%;
+  /* content scrolls inside the fixed-height card */
+  overflow-y: auto;
 }
 
 .diary-graph-card .margin-line-1,
@@ -58,20 +60,25 @@
 .diary-graph-card .paper-content {
   position: relative;
   z-index: 3;
-  padding: 0 24px;
+  /* top padding = 1 grid row so title has breathing room from the top edge */
+  padding: 20px 24px 16px;
 }
 
 .diary-graph-card .title-block {
-  height: calc(var(--row) * 2);
+  /* min 2 rows tall, auto-expands for very long titles */
+  min-height: calc(var(--row) * 2);
+  height: auto;
   display: flex;
   align-items: center;
   padding-left: 42px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .diary-graph-card.title-two-line .title-block {
   align-items: flex-start;
-  padding-top: 12px;
-  padding-bottom: 6px;
+  padding-top: 14px;
+  padding-bottom: 10px;
 }
 
 .diary-graph-card .title {
@@ -88,10 +95,14 @@
 }
 
 .diary-graph-card .entry-row {
-  height: var(--row);
+  /* auto-height: expands when text wraps, stays aligned to grid multiples */
+  min-height: var(--row);
+  height: auto;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   padding-left: 42px;
+  /* slight top offset so single-line text sits at the grid line */
+  padding-top: 10px;
 }
 
 .diary-graph-card .entry-num {
@@ -109,11 +120,14 @@
   font-size: 18px;
   color: #3d3832;
   letter-spacing: 0.01em;
+  /* line-height aligns wrapped lines to the grid (each line = 1 grid row = 40px) */
   line-height: var(--row);
   padding-left: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* allow full text to wrap — no truncation */
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  overflow: visible;
 }
 
 .diary-graph-card::after {

@@ -99,6 +99,31 @@ export default function DiaryGraphPaperCard(props: {
               {dateStr}
             </span>
           </div>
+
+        </div>
+
+        {/* Watermark — 카드 하단 가운데 절대 고정 */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 14,
+            left: 0,
+            right: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            opacity: 0.3,
+            zIndex: 5,
+            pointerEvents: "none",
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 15, color: "#F9C784" }}>
+            movie_filter
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#3a3a3a", letterSpacing: "0.04em", fontFamily: '"Plus Jakarta Sans", ui-sans-serif, sans-serif' }}>
+            Life Reels
+          </span>
         </div>
       </div>
     </section>
