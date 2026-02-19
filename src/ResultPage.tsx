@@ -4,6 +4,11 @@ import type { PipelineJob } from "./pipelineClient";
 import { getPipelineStatus } from "./pipelineClient";
 import AppHeader from "./components/AppHeader";
 import { supabase } from "./supabaseClient";
+import {
+  FacebookShareButton,
+  ThreadsShareButton,
+  TwitterShareButton,
+} from "react-share";
 
 const DRAFT_KEY = "lifereels.diary.draft.v1";
 const jobDiaryKey = (jobId: string) => `lifereels.job.${jobId}.diaryText`;
@@ -63,6 +68,7 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const [emailStatus, setEmailStatus] = useState<"idle" | "sending" | "sent" | "failed">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState("");
+  const [shareStatus, setShareStatus] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const pollingStoppedRef = useRef(false);
   const emailSentRef = useRef(false);
@@ -127,6 +133,8 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
   const outputUrl = job?.outputUrl ? String(job.outputUrl) : "";
   const isDone = job?.status === "done" && Boolean(outputUrl);
   const percent = Math.round(clamp(Number(job?.progress ?? 0), 0, 1) * 100);
+  const shareTitle = "My Life Reels video is ready.";
+  const shareUrl = outputUrl;
 
   useEffect(() => {
     if (!isDone || !outputUrl || emailSentRef.current) return;
@@ -186,6 +194,37 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
   const handleDownloadClick = () => {
     setDownloadDone(true);
     setTimeout(() => setDownloadDone(false), 3000);
+  };
+
+  const handleCopyLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareStatus("Link copied.");
+    } catch {
+      setShareStatus("Could not copy link.");
+    }
+    window.setTimeout(() => setShareStatus(""), 2500);
+  };
+
+  const handleInstagramShare = async () => {
+    if (!shareUrl) return;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: shareTitle,
+          text: "Check out my Life Reels video.",
+          url: shareUrl,
+        });
+        setShareStatus("Share sheet opened.");
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareStatus("Instagram web share is limited. Link copied.");
+      }
+    } catch {
+      setShareStatus("Share canceled.");
+    }
+    window.setTimeout(() => setShareStatus(""), 2500);
   };
 
   return (
@@ -308,6 +347,52 @@ export default function ResultPage(props: { jobId: string; onCreateAnother?: () 
                     <span className="material-symbols-outlined text-[18px]">add_circle</span>
                     Create Another Reel
                   </button>
+                  <div className="rounded-xl border border-border-light bg-white p-3">
+                    <p className="text-xs font-bold text-text-muted mb-2 uppercase tracking-wide">Share</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <TwitterShareButton
+                        url={shareUrl}
+                        title={shareTitle}
+                        className="inline-flex items-center justify-center gap-1 rounded-full border border-border-light bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-semibold text-text-main"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">alternate_email</span>
+                        X
+                      </TwitterShareButton>
+                      <ThreadsShareButton
+                        url={shareUrl}
+                        title={shareTitle}
+                        className="inline-flex items-center justify-center gap-1 rounded-full border border-border-light bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-semibold text-text-main"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">forum</span>
+                        Threads
+                      </ThreadsShareButton>
+                      <FacebookShareButton
+                        url={shareUrl}
+                        hashtag="#LifeReels"
+                        className="inline-flex items-center justify-center gap-1 rounded-full border border-border-light bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-semibold text-text-main"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">thumb_up</span>
+                        Facebook
+                      </FacebookShareButton>
+                      <button
+                        type="button"
+                        onClick={handleInstagramShare}
+                        className="inline-flex items-center justify-center gap-1 rounded-full border border-border-light bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-semibold text-text-main"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">photo_camera</span>
+                        Instagram
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCopyLink}
+                        className="inline-flex items-center justify-center gap-1 rounded-full border border-border-light bg-white hover:bg-gray-50 px-3 py-1.5 text-xs font-semibold text-text-main"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                        Copy Link
+                      </button>
+                    </div>
+                    {shareStatus ? <p className="mt-2 text-[11px] text-text-muted">{shareStatus}</p> : null}
+                  </div>
                 </>
               ) : (
                 <>
