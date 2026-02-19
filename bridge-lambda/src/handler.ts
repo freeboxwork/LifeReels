@@ -1,5 +1,5 @@
 ﻿import { getRenderProgress, renderMediaOnLambda } from "@remotion/lambda/client";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomBytes } from "node:crypto";
 
 type JobStatus =
@@ -104,6 +104,7 @@ type EventV2 = {
 };
 
 const jobs = new Map<string, Job>();
+const JOBS_PREFIX = "pipeline-jobs";
 
 function json(statusCode: number, obj: unknown) {
   return {
@@ -141,6 +142,67 @@ function inferSiteName(serveUrl: string) {
   const m = new URL(serveUrl).pathname.match(/\/sites\/([^/]+)\//);
   if (!m?.[1]) throw new Error("Could not infer site name from REMOTION_SERVE_URL.");
   return m[1];
+}
+
+function inferJobsBucketName() {
+  const explicit = String(process.env.REMOTION_AWS_BUCKET_NAME ?? "").trim();
+  if (explicit) return explicit;
+  const serveUrl = getEnv("REMOTION_SERVE_URL");
+  return inferBucketName(serveUrl);
+}
+
+function inferJobsRegion() {
+  return String(process.env.REMOTION_AWS_REGION ?? "us-east-1").trim() || "us-east-1";
+}
+
+function jobObjectKey(id: string) {
+  return `${JOBS_PREFIX}/${encodeURIComponent(id)}.json`;
+}
+
+async function readBodyToString(body: unknown): Promise<string> {
+  if (!body) return "";
+  const b = body as { transformToString?: (encoding?: string) => Promise<string> };
+  if (typeof b.transformToString === "function") {
+    return b.transformToString("utf-8");
+  }
+  return "";
+}
+
+async function persistJob(job: Job) {
+  try {
+    const s3 = new S3Client({ region: inferJobsRegion() });
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: inferJobsBucketName(),
+        Key: jobObjectKey(job.id),
+        Body: JSON.stringify(job),
+        ContentType: "application/json; charset=utf-8",
+        CacheControl: "no-store",
+      }),
+    );
+  } catch (e) {
+    // Keep pipeline running even if persistence write fails.
+    console.warn("persistJob failed:", e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function loadPersistedJob(id: string): Promise<Job | null> {
+  try {
+    const s3 = new S3Client({ region: inferJobsRegion() });
+    const out = await s3.send(
+      new GetObjectCommand({
+        Bucket: inferJobsBucketName(),
+        Key: jobObjectKey(id),
+      }),
+    );
+    const raw = await readBodyToString(out.Body);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Job;
+    if (!parsed || typeof parsed !== "object" || parsed.id !== id) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 function applyPauseText(input: string, beforeMs: number, afterMs: number) {
@@ -773,6 +835,7 @@ async function runPipeline(job: Job, diaryText: string) {
   const set = (patch: Partial<Job>) => {
     Object.assign(job, patch);
     jobs.set(job.id, job);
+    void persistJob(job);
   };
 
   try {
@@ -1008,6 +1071,7 @@ export const handler = async (event: EventV2) => {
         message: "Queued",
       };
       jobs.set(job.id, job);
+      await persistJob(job);
       void runPipeline(job, diaryText);
       return json(200, { id: job.id });
     }
@@ -1015,7 +1079,11 @@ export const handler = async (event: EventV2) => {
     if (method === "GET" && path.endsWith("/pipeline/status")) {
       const id = String(qs.get("id") ?? "").trim();
       if (!id) return json(400, { error: "Missing id." });
-      const job = jobs.get(id);
+      let job = jobs.get(id);
+      if (!job) {
+        job = (await loadPersistedJob(id)) ?? undefined;
+        if (job) jobs.set(id, job);
+      }
       if (!job) return json(404, { error: "Job not found." });
       return json(200, job);
     }
