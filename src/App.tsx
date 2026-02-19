@@ -8,16 +8,39 @@ import { useHashRoute } from "./useHashRoute";
 import GeneratePage from "./GeneratePage";
 import LoadingPage from "./LoadingPage";
 import ResultPage from "./ResultPage";
+import { supabase } from "./supabaseClient";
 
 export default function App() {
   const [graphTitle, setGraphTitle] = useState<string>("");
   const [graphNarrations, setGraphNarrations] = useState<string[]>([]);
+  const [authReady, setAuthReady] = useState(false);
+  const [isAuthed, setIsAuthed] = useState(false);
   const { route, query, navigate } = useHashRoute();
 
   useEffect(() => {
     if (!window.location.hash) {
       window.location.hash = "#/";
     }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setIsAuthed(Boolean(data.session));
+      setAuthReady(true);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setIsAuthed(Boolean(nextSession));
+      setAuthReady(true);
+    });
+
+    return () => {
+      mounted = false;
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   // routeKey forces React to remount (and re-animate) page components on every route change.
@@ -37,6 +60,27 @@ export default function App() {
   }
 
   if (route === "generate") {
+    if (!authReady) {
+      return (
+        <div key={routeKey} className="min-h-screen bg-background-light flex items-center justify-center p-8 font-display text-text-main page-enter">
+          <div className="max-w-md w-full rounded-2xl bg-white border border-border-light p-6 shadow-sm">
+            <h1 className="text-xl font-black">Checking session...</h1>
+            <p className="text-text-muted mt-2">Please wait a moment.</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (!isAuthed) {
+      return (
+        <LoginPage
+          key={routeKey}
+          onBack={() => navigate("home")}
+          onAuthed={() => navigate("generate")}
+        />
+      );
+    }
+
     return (
       <GeneratePage
         key={routeKey}
