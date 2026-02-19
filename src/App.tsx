@@ -15,6 +15,7 @@ export default function App() {
   const [graphNarrations, setGraphNarrations] = useState<string[]>([]);
   const [authReady, setAuthReady] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
+  const [userLabel, setUserLabel] = useState<string>("");
   const { route, query, navigate } = useHashRoute();
 
   useEffect(() => {
@@ -29,11 +30,29 @@ export default function App() {
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setIsAuthed(Boolean(data.session));
+      const nextUser = data.session?.user;
+      setUserLabel(
+        String(
+          nextUser?.user_metadata?.full_name ||
+          nextUser?.user_metadata?.name ||
+          nextUser?.email ||
+          "",
+        ),
+      );
       setAuthReady(true);
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setIsAuthed(Boolean(nextSession));
+      const nextUser = nextSession?.user;
+      setUserLabel(
+        String(
+          nextUser?.user_metadata?.full_name ||
+          nextUser?.user_metadata?.name ||
+          nextUser?.email ||
+          "",
+        ),
+      );
       setAuthReady(true);
     });
 
@@ -170,6 +189,8 @@ export default function App() {
       key={routeKey}
       onStartWriting={() => navigate("generate")}
       onLogin={() => navigate("login")}
+      isAuthed={isAuthed}
+      userLabel={userLabel}
     />
   );
 }
