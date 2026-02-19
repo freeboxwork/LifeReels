@@ -24,6 +24,33 @@ function pickStage(job?: PipelineJob) {
   return "queued";
 }
 
+const STATUS_ORDER: Record<string, number> = {
+  queued: 0,
+  generating_scenario: 1,
+  generating_images: 2,
+  generating_narration: 3,
+  rendering_video: 4,
+  done: 5,
+  error: 6,
+};
+
+function shouldIgnoreRegressiveUpdate(prev: PipelineJob | null, next: PipelineJob) {
+  if (!prev) return false;
+  if (next.status === "done" || next.status === "error") return false;
+
+  const prevRank = STATUS_ORDER[String(prev.status)] ?? -1;
+  const nextRank = STATUS_ORDER[String(next.status)] ?? -1;
+  if (nextRank < prevRank) return true;
+
+  if (nextRank === prevRank) {
+    const prevProgress = Number(prev.progress ?? 0);
+    const nextProgress = Number(next.progress ?? 0);
+    // Ignore obvious backtracking caused by stale/cached status responses.
+    if (nextProgress + 0.03 < prevProgress) return true;
+  }
+  return false;
+}
+
 const TIPS = [
   {
     headline: "Did you know?",
@@ -96,7 +123,7 @@ export default function LoadingPage(props: { jobId: string; onDone?: (outputUrl:
       try {
         const next = await getPipelineStatus(props.jobId);
         if (cancelled) return;
-        setJob(next);
+        setJob((prev) => (shouldIgnoreRegressiveUpdate(prev, next) ? prev : next));
         setError(next.error ? String(next.error) : "");
         if (next.outputUrl && next.status === "done" && lastDoneUrl.current !== next.outputUrl) {
           lastDoneUrl.current = next.outputUrl;
