@@ -18,16 +18,31 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     headers["Authorization"] = `Bearer ${context.env.PIPELINE_BRIDGE_TOKEN}`;
   }
   const target = `${bridgeUrl.replace(/\/+$/, "")}/pipeline/status${url.search}`;
-  const upstream = await fetch(target, { method: "GET", headers });
-  const text = await upstream.text();
+  try {
+    const upstream = await fetch(target, { method: "GET", headers });
+    const text = await upstream.text();
 
-  return new Response(text, {
-    status: upstream.status,
-    headers: {
-      "Content-Type": upstream.headers.get("content-type") ?? "application/json",
-      "Cache-Control": "no-store, no-cache, must-revalidate",
-      Pragma: "no-cache",
-      Expires: "0",
-    },
-  });
+    return new Response(text, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": upstream.headers.get("content-type") ?? "application/json",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    });
+  } catch (e) {
+    return new Response(
+      JSON.stringify({
+        error: e instanceof Error ? `Bridge status fetch failed: ${e.message}` : "Bridge status fetch failed.",
+      }),
+      {
+        status: 502,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      },
+    );
+  }
 };
