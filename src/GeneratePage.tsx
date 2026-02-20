@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { startPipeline } from "./pipelineClient";
 import AppHeader from "./components/AppHeader";
+import { supabase } from "./supabaseClient";
+import { createPolarCheckout, getCreditBalance } from "./billingClient";
 
 function fmtLongDate(d: Date) {
   return d.toLocaleDateString("en-US", {
@@ -71,6 +73,8 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
     }
   });
   const [loading, setLoading] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [credits, setCredits] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [lastEditedAt, setLastEditedAt] = useState<number>(() => Date.now());
   const [tipIndex] = useState(() => Math.floor(Math.random() * TIPS.length));
@@ -85,6 +89,23 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
 
   const sidebarMsg = useMemo(() => getSidebarMessage(chars), [chars]);
 
+  async function refreshCredits() {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = String(data.session?.access_token ?? "").trim();
+      if (!token) {
+        setCredits(null);
+        return;
+      }
+      const balance = await getCreditBalance(token);
+      setCredits(balance);
+    } catch (e) {
+      setCredits(null);
+      const msg = e instanceof Error ? e.message : "Failed to load credits.";
+      setError(msg);
+    }
+  }
+
   useEffect(() => {
     try {
       localStorage.setItem(DRAFT_KEY, diaryText);
@@ -92,6 +113,10 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
       // ignore
     }
   }, [diaryText]);
+
+  useEffect(() => {
+    void refreshCredits();
+  }, []);
 
   // 페이지를 떠날 때 초안 초기화 — 재진입 시 빈 상태로 시작
   useEffect(() => {
@@ -113,17 +138,43 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
     }
     setLoading(true);
     try {
-      const jobId = await startPipeline(text);
+      const { data } = await supabase.auth.getSession();
+      const token = String(data.session?.access_token ?? "").trim();
+      if (!token) throw new Error("Session expired. Please log in again.");
+
+      const started = await startPipeline(text, token);
       try {
-        localStorage.setItem(jobDiaryKey(jobId), text);
+        localStorage.setItem(jobDiaryKey(started.id), text);
       } catch {
         // ignore
       }
-      onStarted(jobId);
+      if (typeof started.credits === "number") {
+        setCredits(Math.max(0, Math.floor(started.credits)));
+      } else {
+        void refreshCredits();
+      }
+      onStarted(started.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start generation.");
+      void refreshCredits();
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleBuyCredits() {
+    setError("");
+    setCheckoutLoading(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = String(data.session?.access_token ?? "").trim();
+      if (!token) throw new Error("Session expired. Please log in again.");
+      const url = await createPolarCheckout(token);
+      window.location.href = url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to open checkout.");
+    } finally {
+      setCheckoutLoading(false);
     }
   }
 
@@ -148,6 +199,20 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
       <AppHeader
         rightContent={
           <>
+            <div className="hidden md:flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-sm">
+              <span className="material-symbols-outlined text-primary text-[17px]">paid</span>
+              <span className="text-sm font-semibold text-gray-800">
+                Credits: {credits === null ? "..." : credits}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleBuyCredits}
+              disabled={checkoutLoading}
+              className="hidden md:flex items-center justify-center rounded-full h-10 px-4 border border-gray-200 bg-white hover:bg-gray-50 text-sm font-bold text-gray-800 transition-colors disabled:opacity-60"
+            >
+              {checkoutLoading ? "Opening checkout..." : "Buy 3 Credits ($1)"}
+            </button>
             <div className="hidden md:flex items-center gap-4 bg-gray-50 rounded-full px-2 py-1 border border-gray-200 shadow-sm">
               <div className="flex items-center gap-2 px-3 py-1 cursor-default">
                 <span className="material-symbols-outlined text-[#c88c10] text-[16px]">calendar_today</span>

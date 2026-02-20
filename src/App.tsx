@@ -27,6 +27,12 @@ function parseHashAuthTokens(hash: string): { accessToken: string; refreshToken:
   return { accessToken, refreshToken };
 }
 
+function shouldLogAuthDebug() {
+  if (typeof window === "undefined") return false;
+  const host = String(window.location.hostname || "").toLowerCase();
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 export default function App() {
   const [graphTitle, setGraphTitle] = useState<string>("");
   const [graphNarrations, setGraphNarrations] = useState<string[]>([]);
@@ -49,8 +55,17 @@ export default function App() {
             access_token: tokens.accessToken,
             refresh_token: tokens.refreshToken,
           });
-        } catch {
-          // Ignore and continue to URL cleanup/fallback routing.
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          // Some environments can be 1-2 seconds behind right after redirect.
+          // Retry once when GoTrue warns token "was issued in the future".
+          if (/issued in the future/i.test(msg)) {
+            await new Promise((r) => setTimeout(r, 2000));
+            await supabase.auth.setSession({
+              access_token: tokens.accessToken,
+              refresh_token: tokens.refreshToken,
+            });
+          }
         }
 
         if (cancelled) return;
@@ -93,6 +108,13 @@ export default function App() {
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
+      if (shouldLogAuthDebug()) {
+        console.log("[auth] getSession()", {
+          hasSession: Boolean(data.session),
+          userId: data.session?.user?.id,
+          email: data.session?.user?.email,
+        });
+      }
       setIsAuthed(Boolean(data.session));
       const nextUser = data.session?.user;
       setUserLabel(
@@ -107,6 +129,14 @@ export default function App() {
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (shouldLogAuthDebug()) {
+        console.log("[auth] onAuthStateChange", {
+          event: _event,
+          hasSession: Boolean(nextSession),
+          userId: nextSession?.user?.id,
+          email: nextSession?.user?.email,
+        });
+      }
       setIsAuthed(Boolean(nextSession));
       const nextUser = nextSession?.user;
       setUserLabel(
