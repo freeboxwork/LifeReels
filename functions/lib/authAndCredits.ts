@@ -176,7 +176,10 @@ export async function applyCreditDelta(
   });
   const raw = await r.text();
   if (!r.ok) throw new Error(`Failed to apply credit delta: ${r.status} ${raw}`);
-  const row = JSON.parse(raw) as { applied?: boolean; balance?: number };
+  const parsed = JSON.parse(raw) as
+    | { applied?: boolean; balance?: number }
+    | Array<{ applied?: boolean; balance?: number }>;
+  const row = Array.isArray(parsed) ? parsed[0] ?? {} : parsed ?? {};
   return {
     applied: Boolean(row.applied),
     balance: Math.max(0, Number(row.balance ?? 0) || 0),
