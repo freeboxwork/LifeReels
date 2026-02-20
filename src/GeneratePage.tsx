@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { startPipeline } from "./pipelineClient";
 import AppHeader from "./components/AppHeader";
 import { supabase } from "./supabaseClient";
@@ -78,6 +78,7 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
   const [error, setError] = useState("");
   const [lastEditedAt, setLastEditedAt] = useState<number>(() => Date.now());
   const [tipIndex] = useState(() => Math.floor(Math.random() * TIPS.length));
+  const startLockRef = useRef(false);
 
   const chars = diaryText.length;
   const today = useMemo(() => new Date(), []);
@@ -130,10 +131,13 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
   }, []);
 
   async function handleGenerate() {
+    if (startLockRef.current || loading) return;
+    startLockRef.current = true;
     setError("");
     const text = diaryText.trim();
     if (!text) {
       setError("Please write your diary before generating.");
+      startLockRef.current = false;
       return;
     }
     setLoading(true);
@@ -159,6 +163,7 @@ export default function GeneratePage(props: { onStarted?: (jobId: string) => voi
       void refreshCredits();
     } finally {
       setLoading(false);
+      startLockRef.current = false;
     }
   }
 
