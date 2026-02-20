@@ -491,13 +491,22 @@ function parseScenarioText(text: string): ScriptV2 {
   return v.value;
 }
 
+const BASE_STYLE =
+  "Art Style: Warm animation background painting mixed with cinematic film photography. Geography: Modern South Korea, Seoul city vibe, clean streets, power lines against the sky. Texture: Soft watercolor feel, gentle hand-painted textures, subtle film grain. Lighting: Soft natural daylight, warm palette, shallow depth of field (bokeh). Vibe: Nostalgic, cozy, calm, sentimental, emotional.";
+
+const CHARACTER_ANCHOR =
+  "Presence Rule: ABSOLUTELY NO HUMANS. No people, no faces, no silhouettes, no hands/arms/legs, no body parts. Text Rule: ABSOLUTELY NO TEXT. No letters, no numbers, no signage, no labels, no menus, no posters, no captions anywhere in the image. Camera Role: Invisible observer capturing still life or landscape. Composition: Cinematic composition, rule of thirds, focus on inanimate objects and environmental details (light rays, steam, wind). Scale Rule: Realistic proportions, normal scale, no forced perspective, no wide-angle distortion. Lens/feel: 50mm natural perspective. Street Rule (when outdoors): empty streets only, no pedestrians, no crossing people, no cropped passersby.";
+
+const NEGATIVE_PROMPT =
+  "any text, readable text, letters, typography, words, numbers, subtitles, captions, Hangul, Korean text, Korean characters, Hanja, Chinese characters, Japanese text, Kanji, Hiragana, Katakana, sign, signage, signboard, shop sign, neon sign, billboard, poster, menu, label, packaging text, street name, watermark, signature, logo, video game, FPS, first-person shooter, HUD, UI overlay, game screenshot, VR, person, people, human, crowd, face, body parts, silhouette, hands, arms, legs, pedestrian, passerby, crossing, walking person, street crossing, crosswalk person, close-up legs, close-up shoes, cropped body, giant legs, oversized shoes, foreground legs, low angle, floating hands, holding objects, eating, drinking, touching, distorted perspective, surreal scale, giant objects, miniature world.";
+
 function buildImagePrompt(shot: Shot) {
-  const scene = String(shot.image_prompt || shot.visual_description || "").trim();
-  return [
-    "Warm cinematic still image, Korean daily life mood, no people.",
-    "No text, no signage, no labels, no logo.",
-    `Scene: ${scene}`,
-  ].join("\n");
+  const rawInput = String(shot.image_prompt || shot.visual_description || "")
+    .trim()
+    .replace(/^Scene:\s*/i, "");
+  const sceneCore = rawInput || "Quiet cinematic still life scene with environmental atmosphere.";
+  const sceneDetail = `${sceneCore}${sceneCore.endsWith(".") ? "" : "."} Focus on inanimate objects and environmental details only. No humans visible.`;
+  return `AESTHETIC_LENS:\n${BASE_STYLE}\n\nATMOSPHERE_ANCHOR:\n${CHARACTER_ANCHOR}\n\nSCENE_DETAIL:\n${sceneDetail}\n\nNEGATIVE:\n${NEGATIVE_PROMPT}`;
 }
 
 async function callOpenAiImage(apiKey: string, model: string, prompt: string) {
