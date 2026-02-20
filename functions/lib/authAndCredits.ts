@@ -93,34 +93,42 @@ export async function getCredits(env: AuthEnv, userId: string) {
     throw new Error("Missing VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
   }
 
-  // Ensure row exists
-  await fetch(`${supabaseUrl.replace(/\/+$/, "")}/rest/v1/user_credits`, {
+  const readUrl =
+    `${supabaseUrl.replace(/\/+$/, "")}/rest/v1/user_credits` +
+    `?user_id=eq.${encodeURIComponent(userId)}&select=balance&limit=1`;
+
+  const read = await fetch(readUrl, {
+    method: "GET",
+    headers: {
+      apikey: serviceRole,
+      Authorization: `Bearer ${serviceRole}`,
+    },
+  });
+  const rawRead = await read.text();
+  if (!read.ok) throw new Error(`Failed to fetch credits: ${read.status} ${rawRead}`);
+
+  const rows = JSON.parse(rawRead) as Array<{ balance?: number }>;
+  if (rows.length > 0) {
+    const n = Number(rows[0]?.balance ?? 0);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  // Create the row only when missing. Do not overwrite existing balances.
+  const create = await fetch(`${supabaseUrl.replace(/\/+$/, "")}/rest/v1/user_credits`, {
     method: "POST",
     headers: {
       apikey: serviceRole,
       Authorization: `Bearer ${serviceRole}`,
       "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates",
+      Prefer: "return=minimal",
     },
     body: JSON.stringify([{ user_id: userId, balance: 0 }]),
   });
-
-  const r = await fetch(
-    `${supabaseUrl.replace(/\/+$/, "")}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(userId)}&select=balance&limit=1`,
-    {
-      method: "GET",
-      headers: {
-        apikey: serviceRole,
-        Authorization: `Bearer ${serviceRole}`,
-      },
-    },
-  );
-  const raw = await r.text();
-  if (!r.ok) throw new Error(`Failed to fetch credits: ${r.status} ${raw}`);
-
-  const arr = JSON.parse(raw) as Array<{ balance?: number }>;
-  const n = Number(arr?.[0]?.balance ?? 0);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  const rawCreate = await create.text();
+  if (!create.ok && create.status !== 409) {
+    throw new Error(`Failed to initialize credits row: ${create.status} ${rawCreate}`);
+  }
+  return 0;
 }
 
 export async function setCredits(env: AuthEnv, userId: string, value: number) {
