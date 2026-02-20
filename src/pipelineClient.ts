@@ -53,6 +53,13 @@ export async function getPipelineStatus(id: string): Promise<PipelineJob> {
     cache: "no-store",
   });
   const text = await resp.text();
-  if (!resp.ok) throw new Error(text || `Pipeline status failed: ${resp.status}`);
+  if (!resp.ok) {
+    try {
+      const data = JSON.parse(text) as { error?: string };
+      throw new Error(data.error || `Pipeline status failed: ${resp.status}`);
+    } catch {
+      throw new Error(text || `Pipeline status failed: ${resp.status}`);
+    }
+  }
   return JSON.parse(text) as PipelineJob;
 }
