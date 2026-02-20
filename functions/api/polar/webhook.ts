@@ -46,14 +46,23 @@ function extractOrderId(data: any) {
   return extractString(data?.id) || extractString(data?.order_id) || extractString(data?.orderId);
 }
 
+function headersToRecord(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    out[String(key).toLowerCase()] = String(value);
+  });
+  return out;
+}
+
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const secret = extractString(context.env.POLAR_WEBHOOK_SECRET);
   if (!secret) return json({ error: "Missing POLAR_WEBHOOK_SECRET." }, 500);
 
   const bodyText = await context.request.text();
+  const headerRecord = headersToRecord(context.request.headers);
   let event: any;
   try {
-    event = validateEvent(bodyText, context.request.headers, secret);
+    event = validateEvent(bodyText, headerRecord, secret);
   } catch (e) {
     if (e instanceof WebhookVerificationError) {
       return json({ error: "Invalid webhook signature." }, 403);
