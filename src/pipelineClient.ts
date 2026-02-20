@@ -19,17 +19,33 @@ export type PipelineJob = {
   outputUrl?: string;
 };
 
-export async function startPipeline(diaryText: string) {
+export type StartPipelineResponse = {
+  id: string;
+  credits?: number;
+};
+
+export async function startPipeline(diaryText: string, accessToken?: string) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
   const resp = await fetch("/api/pipeline/start", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ diaryText }),
   });
   const text = await resp.text();
-  if (!resp.ok) throw new Error(text || `Pipeline start failed: ${resp.status}`);
-  const data = JSON.parse(text) as { id: string };
+  if (!resp.ok) {
+    try {
+      const data = JSON.parse(text) as { error?: string };
+      throw new Error(data.error || `Pipeline start failed: ${resp.status}`);
+    } catch {
+      throw new Error(text || `Pipeline start failed: ${resp.status}`);
+    }
+  }
+  const data = JSON.parse(text) as StartPipelineResponse;
   if (!data?.id) throw new Error("Pipeline start response missing id.");
-  return data.id;
+  return data;
 }
 
 export async function getPipelineStatus(id: string): Promise<PipelineJob> {

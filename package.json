@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/freeboxwork/LifeReels#readme",
   "dependencies": {
+    "@polar-sh/sdk": "^0.43.1",
     "@remotion/lambda": "4.0.422",
     "@supabase/supabase-js": "^2.95.3",
     "ajv": "^8.18.0",

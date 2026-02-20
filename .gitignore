@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .env.local
+.dev.vars
 .npm-cache/
 PROJECT_HANDOFF.md
 *.md
