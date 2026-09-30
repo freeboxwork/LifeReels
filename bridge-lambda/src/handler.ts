@@ -1,6 +1,7 @@
 ﻿import { getRenderProgress, renderMediaOnLambda } from "@remotion/lambda/client";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomBytes } from "node:crypto";
+import { LIFEREELS_RETIRED, RETIRED_PAYLOAD, RETIRED_STATUS } from "../../shared/serviceRetirement";
 
 type JobStatus =
   | "queued"
@@ -1064,6 +1065,8 @@ function checkAuth(event: EventV2) {
 }
 
 export const handler = async (event: EventV2) => {
+  if (LIFEREELS_RETIRED) return json(RETIRED_STATUS, RETIRED_PAYLOAD);
+
   try {
     if (!checkAuth(event)) {
       return json(401, { error: "Unauthorized" });

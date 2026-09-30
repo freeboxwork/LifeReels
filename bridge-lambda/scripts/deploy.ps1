@@ -6,6 +6,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+throw "Life Reels is retired. AWS bridge deployment is disabled; do not recreate closed resources."
+
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $bridgeDir = Join-Path $root "bridge-lambda"
 $distDir = Join-Path $bridgeDir "dist"

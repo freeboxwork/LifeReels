@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
+import { LIFEREELS_RETIRED, RETIRED_PAYLOAD, RETIRED_STATUS } from "./shared/serviceRetirement";
 
 function readRequestBody(req: import("http").IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1305,6 +1306,12 @@ export default defineConfig(({ mode }) => {
         name: "elevenlabs-dev-proxy",
         configureServer(server) {
           server.middlewares.use(async (req, res, next) => {
+            if (LIFEREELS_RETIRED && req.url?.startsWith("/api/")) {
+              res.setHeader("Cache-Control", "no-store");
+              writeJson(res, RETIRED_STATUS, RETIRED_PAYLOAD);
+              return;
+            }
+
             // One-stop pipeline endpoints (local dev only).
             if (req.url?.startsWith("/api/pipeline/")) {
               try {
